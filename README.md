@@ -168,7 +168,7 @@ bun run release         # Icons + all platforms
 
 On a **version bump** push to `main`, it builds Mac + Windows and **[creates the GitHub Release and the `v…` tag](https://github.com/softprops/action-gh-release)** in the same run (no separate tag workflow). That avoids a GitHub limitation where a tag pushed with **`GITHUB_TOKEN`** does **not** start another workflow.
 
-1. Bump **`version`** in [`package.json`](package.json) (e.g. `npm version patch --no-git-tag-version`), commit, push to **`main`**.
+1. Bump **`version`**: **`nr version:patch`**, **`nr version:minor`**, or **`nr version:major`** (no local git tag — CI creates **`v…`**), or **`nr bump`** for [standard-version](https://github.com/conventional-changelog/standard-version) and the changelog. Commit and push **`main`**.
 2. Open **Actions** → **Release** and wait for **gate** → **build** → **publish**.
 
 **Manual tag:** `git tag v6.0.1 && git push origin v6.0.1` still triggers **Release** (tag push path).
