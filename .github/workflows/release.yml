@@ -2,12 +2,14 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (must match package.json "version", with v prefix in tag e.g. 6.0.0)'
+        description: 'Release version (must match package.json "version", e.g. 6.0.0)'
         required: true
         default: '6.0.0'
 
@@ -16,7 +18,56 @@ permissions:
   actions: read
 
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.resolve.outputs.should_build }}
+      app_version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release gate
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          APP_VERSION=$(node -p "require('./package.json').version")
+          echo "version=$APP_VERSION" >> "$GITHUB_OUTPUT"
+
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            if ! git show HEAD~1:package.json > /tmp/prev-package.json 2>/dev/null; then
+              echo "should_build=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            PREV=$(node -p "require('/tmp/prev-package.json').version")
+            if [ "$APP_VERSION" = "$PREV" ]; then
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "should_build=true" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: [gate]
+    if: needs.gate.outputs.should_build == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -61,9 +112,9 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [build]
+    needs: [gate, build]
     runs-on: ubuntu-latest
-    if: ${{ always() && needs.build.result == 'success' }}
+    if: ${{ always() && needs.gate.outputs.should_build == 'true' && needs.build.result == 'success' }}
 
     steps:
       - name: Download macOS artefacts
@@ -82,9 +133,22 @@ jobs:
         run: ls -la upload
 
       - name: Create GitHub Release (tag push)
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          files: upload/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release (main — version bump)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.gate.outputs.app_version }}
+          name: Release v${{ needs.gate.outputs.app_version }}
+          target_commitish: ${{ github.sha }}
           files: upload/*
           draft: false
           prerelease: false
@@ -95,8 +159,8 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ github.event.inputs.version }}
-          name: Release v${{ github.event.inputs.version }}
+          tag_name: v${{ needs.gate.outputs.app_version }}
+          name: Release v${{ needs.gate.outputs.app_version }}
           files: upload/*
           draft: false
           prerelease: false

@@ -160,17 +160,22 @@ bun run release         # Icons + all platforms
 
 ### Shipping macOS + Windows (recommended)
 
-**Automatic tagging:** When you push to **`main`**, [`.github/workflows/tag-version.yml`](.github/workflows/tag-version.yml) compares the **`version`** field in [`package.json`](package.json) to the previous commit. If it **changed**, it creates and pushes **`v<version>`** for that commit (unless that tag already exists). That push triggers [`.github/workflows/release.yml`](.github/workflows/release.yml).
+**One workflow:** [`.github/workflows/release.yml`](.github/workflows/release.yml) runs on pushes to **`main`**, on **`v*`** tag pushes, and manually. It only **builds** when:
 
-1. Bump the **`version`** in [`package.json`](package.json) (e.g. `6.0.0` → `6.0.1`). You can use `npm version patch --no-git-tag-version` or `npm version minor --no-git-tag-version` so only the file changes locally; then commit that change. Avoid `npm version` *with* its default git tag if you want GitHub Actions to create **`v…`** for you.
-2. Push the commit to **`main`**.
-3. Wait for **Tag version** (creates the tag) then **Release** (builds Mac + Windows and publishes the GitHub Release).
+- you **bumped** the app **`version`** in [`package.json`](package.json) compared to the previous commit on **`main`**, or  
+- the run was triggered by a **`v*`** tag, or  
+- you used **Run workflow** (manual).
 
-**Manual tag** (optional): `git tag v6.0.1 && git push origin v6.0.1` still works and triggers **Release** the same way.
+On a **version bump** push to `main`, it builds Mac + Windows and **[creates the GitHub Release and the `v…` tag](https://github.com/softprops/action-gh-release)** in the same run (no separate tag workflow). That avoids a GitHub limitation where a tag pushed with **`GITHUB_TOKEN`** does **not** start another workflow.
 
-**Manual release without a version commit**: **Actions** → **Release** → **Run workflow**, enter the version (must match `package.json` **`version`** on `main`).
+1. Bump **`version`** in [`package.json`](package.json) (e.g. `npm version patch --no-git-tag-version`), commit, push to **`main`**.
+2. Open **Actions** → **Release** and wait for **gate** → **build** → **publish**.
 
-**Auto-update (Windows):** the release must include **`latest.yml`** and **`.exe.blockmap`** (the Release workflow uploads them with the rest).
+**Manual tag:** `git tag v6.0.1 && git push origin v6.0.1` still triggers **Release** (tag push path).
+
+**Manual run:** **Actions** → **Release** → **Run workflow**; the version you enter must match `package.json` on `main`.
+
+**Auto-update (Windows):** the published release should include **`latest.yml`** and **`.exe.blockmap`** (uploaded by this workflow).
 
 Local one-off builds:
 
