@@ -165,8 +165,6 @@
       "deleteAppDataOnUninstall": false,
       "uninstallDisplayName": "Pairkiller ${version}",
       "artifactName": "${productName}-Setup-${version}.${ext}",
-      "installerHeaderIcon": "build/icons/icon.png",
-      "uninstallerIcon": "build/icons/icon.png",
       "runAfterFinish": true,
       "packElevateHelper": false,
       "displayLanguageSelector": false,
