@@ -1,29 +1,30 @@
 {
   "name": "pairkiller",
   "productName": "Pairkiller",
-  "version": "5.1.0",
+  "version": "6.0.0",
   "description": "A modern, flexible app monitoring and control system with enhanced UI and performance",
   "main": "main.js",
+  "packageManager": "bun@1.3.11",
   "scripts": {
     "start": "electron .",
-    "dev": "concurrently \"npm run watch:css\" \"electron . --dev\"",
-    "build": "npm run build:css && npx electron-builder --publish=never",
-    "build:all": "npm run build:css && npx electron-builder --mac --win --linux",
-    "build:mac": "npm run build:css && npx electron-builder --mac",
-    "build:win": "npm run build:css && npx electron-builder --win",
-    "build:linux": "npm run build:css && npx electron-builder --linux",
-    "watch:css": "npx tailwindcss -i ./styles.css -o ./output.css --watch",
-    "build:css": "npx tailwindcss -i ./styles.css -o ./output.css --minify",
-    "build:icons": "npm run build:icons:setup",
-    "build:icons:setup": "if not exist build\\icons mkdir build\\icons && copy icon.png build\\icons\\icon.png",
+    "dev": "concurrently \"bun run watch:css\" \"electron . --dev\"",
+    "build": "bun run build:css && bunx electron-builder --publish never",
+    "build:all": "bun run build:css && bunx electron-builder --mac --win --linux",
+    "build:mac": "bun run build:css && bunx electron-builder --mac",
+    "build:win": "bun run build:css && bunx electron-builder --win",
+    "build:linux": "bun run build:css && bunx electron-builder --linux",
+    "watch:css": "bunx @tailwindcss/cli -i ./styles.css -o ./output.css --watch",
+    "build:css": "bunx @tailwindcss/cli -i ./styles.css -o ./output.css --minify",
+    "build:icons": "bun run build:icons:setup",
+    "build:icons:setup": "bun scripts/copy-icon.js",
     "build:icons:create": "echo ImageMagick not available - using PNG icon for all formats",
-    "bump": "standard-version",
-    "dist": "npm run build:css && npx electron-builder --publish=never",
-    "pack": "npm run build:css && npx electron-builder --dir",
-    "lint": "eslint . --ext .js --ignore-pattern dist/ --ignore-pattern node_modules/",
-    "test": "node test-migration.js",
-    "test:migration": "node test-migration.js",
-    "release": "npm run build:icons && npm run build:all"
+    "bump": "bunx standard-version",
+    "dist": "bun run build:css && bunx electron-builder --publish never",
+    "pack": "bun run build:css && bunx electron-builder --dir --publish never",
+    "lint": "eslint .",
+    "test": "bun test-migration.js",
+    "test:migration": "bun test-migration.js",
+    "release": "bun run build:icons && bun run build:all"
   },
   "build": {
     "appId": "com.pairkiller.app",
@@ -40,8 +41,10 @@
       "about.html",
       "about.js",
       "update.html",
+      "update.js",
       "output.css",
       "icon.png",
+      "trayTemplate.png",
       "package.json"
     ],
     "extraResources": [
@@ -54,6 +57,7 @@
       }
     ],
     "win": {
+      "electronUpdaterCompatibility": ">=5.0.0",
       "target": [
         {
           "target": "nsis",
@@ -71,11 +75,11 @@
       ],
       "icon": "icon.png",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
-      "requestedExecutionLevel": "asInvoker",
-      "publisherName": "Ben Hybert"
+      "requestedExecutionLevel": "asInvoker"
     },
     "mac": {
       "category": "public.app-category.utilities",
+      "electronUpdaterCompatibility": ">=5.0.0",
       "icon": "build/icons/icon.png",
       "target": [
         {
@@ -193,7 +197,7 @@
     ],
     "compression": "maximum",
     "npmRebuild": false,
-    "beforeBuild": "npm run build:css"
+    "beforeBuild": "bun run build:css"
   },
   "keywords": [
     "electron",
@@ -219,24 +223,24 @@
   },
   "homepage": "https://github.com/hybes/pairkiller#readme",
   "dependencies": {
-    "@sentry/electron": "^4.8.0",
-    "dotenv": "^16.4.5",
-    "electron-context-menu": "^4.0.4",
-    "electron-updater": "^6.3.9",
+    "@sentry/electron": "^7.10.0",
+    "dotenv": "^17.3.1",
+    "electron-context-menu": "^4.1.2",
+    "electron-updater": "^6.8.3",
     "winreg": "^1.2.5"
   },
   "devDependencies": {
-    "autoprefixer": "^10.4.20",
-    "concurrently": "^9.1.0",
-    "electron": "^25.0.0",
-    "electron-builder": "^24.4.0",
-    "eslint": "^8.57.0",
-    "postcss": "^8.4.49",
+    "@eslint/js": "^10.0.1",
+    "@tailwindcss/cli": "^4.2.2",
+    "concurrently": "^9.2.1",
+    "electron": "^41.0.3",
+    "electron-builder": "^26.8.1",
+    "eslint": "^10.0.3",
+    "globals": "^17.4.0",
     "standard-version": "^9.5.0",
-    "tailwindcss": "^3.4.15"
+    "tailwindcss": "^4.2.2"
   },
   "engines": {
-    "node": ">=16.0.0",
-    "npm": ">=8.0.0"
+    "bun": ">=1.0.0"
   }
 }

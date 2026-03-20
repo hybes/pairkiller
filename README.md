@@ -1,4 +1,4 @@
-# Pairkiller v4.0.0
+# Pairkiller v6.0.0
 
 A modern, intelligent app monitoring and control system that automatically manages your companion applications based on what games you're playing. **Now supports Windows, macOS, and Linux with seamless updates!**
 
@@ -49,29 +49,27 @@ A modern, intelligent app monitoring and control system that automatically manag
 ## 📥 Installation
 
 ### Download
-Get the latest release from the [GitHub Releases](https://github.com/hybes/pairkiller/releases) page:
+Get the latest release from [GitHub Releases](https://github.com/hybes/pairkiller/releases). Names follow the version tag, for example:
 
-- **Windows**: `Pairkiller.Setup.4.0.0.exe`
-- **macOS**: `Pairkiller-4.0.0.dmg` (Intel & Apple Silicon)
-- **Linux**: `Pairkiller-4.0.0.AppImage`
+- **Windows**: `Pairkiller-Setup-<version>.exe` (and optional portable `.exe`)
+- **macOS**: `Pairkiller-<version>-<arch>.dmg` or `.zip` (Intel & Apple Silicon)
+- **Linux**: `.AppImage`, `.deb`, or `.tar.gz` for x64
 
-### Platform-Specific Installation
+### Platform-specific installation
 
 #### Windows
-1. Download `Pairkiller.Setup.4.0.0.exe`
-2. Run the installer and follow the setup wizard
-3. The app will start automatically and appear in your system tray
+1. Download the latest **Setup** executable from Releases.
+2. Run the installer and follow the wizard (per-user install under `%LOCALAPPDATA%` by default).
+3. The app can start automatically and lives in the system tray.
 
 #### macOS
-1. Download `Pairkiller-4.0.0.dmg`
-2. Open the DMG file and drag Pairkiller to your Applications folder
-3. Launch Pairkiller from Applications or Spotlight
-4. You may need to allow the app in System Preferences > Security & Privacy
+1. Download the **DMG** (or **ZIP**) for your architecture.
+2. Open the DMG and drag Pairkiller into **Applications**.
+3. Launch from Applications or Spotlight; grant permissions if macOS prompts you.
 
 #### Linux
-1. Download `Pairkiller-4.0.0.AppImage`
-2. Make it executable: `chmod +x Pairkiller-4.0.0.AppImage`
-3. Run the AppImage: `./Pairkiller-4.0.0.AppImage`
+1. Download the **AppImage** (or **deb** / **tar.gz** if you prefer).
+2. AppImage example: `chmod +x Pairkiller-*.AppImage` then `./Pairkiller-*.AppImage`
 
 ### Quick Start
 1. Launch the application (it will start in the system tray)
@@ -130,38 +128,55 @@ Works on all platforms to monitor Steam and manage gaming apps.
 ## 🔧 Development
 
 ### Prerequisites
-- Node.js 16+
-- npm 8+
-- ImageMagick (for icon generation)
+- [Bun](https://bun.sh) 1.0 or newer
+- Optional: ImageMagick if you generate multi-resolution icons locally
 
 ### Setup
 ```bash
-# Clone the repository
 git clone https://github.com/hybes/pairkiller.git
 cd pairkiller
 
-# Install dependencies
-npm install
+bun install
 
-# Build CSS
-npm run build:css
-
-# Run in development mode
-npm run dev
+bun run build:css
+bun run dev
 ```
 
-### Building for Distribution
+On **macOS**, packaged installs often use **menu-bar / tray-only** mode (no dock icon). **`bun run dev`** now forces the **Dock** visible and **opens Settings** automatically so you are not staring at an empty desktop. For a normal install, use the **tray icon** (top-right menu bar) → **Settings**.
 
-For detailed build instructions and cross-platform compilation, see **[BUILD.md](BUILD.md)**.
+### Building for distribution
 
 **Quick commands:**
 ```bash
-npm run build:icons     # Generate all icon formats
-npm run build:mac       # Build for macOS
-npm run build:win       # Build for Windows  
-npm run build:linux     # Build for Linux
-npm run build:all       # Build for all platforms
-npm run release         # Icons + all platforms
+bun run build:icons     # Copy icon + regenerate trayTemplate.png (macOS) for menu bar
+bun run build:mac       # macOS
+bun run build:win       # Windows
+bun run build:linux     # Linux
+bun run build:all       # All platforms on current machine
+bun run release         # Icons + all platforms
+```
+
+`build:win` only works on Windows (or a Windows VM), and `build:mac` only on macOS—electron-builder cannot cross-build the other OS reliably from one machine. For **both** artefacts in one release, use GitHub Actions (below) or build on two machines and upload the `dist/` outputs to the same [GitHub Release](https://github.com/hybes/pairkiller/releases).
+
+### Shipping macOS + Windows (recommended)
+
+**Automatic tagging:** When you push to **`main`**, [`.github/workflows/tag-version.yml`](.github/workflows/tag-version.yml) compares the **`version`** field in [`package.json`](package.json) to the previous commit. If it **changed**, it creates and pushes **`v<version>`** for that commit (unless that tag already exists). That push triggers [`.github/workflows/release.yml`](.github/workflows/release.yml).
+
+1. Bump the **`version`** in [`package.json`](package.json) (e.g. `6.0.0` → `6.0.1`). You can use `npm version patch --no-git-tag-version` or `npm version minor --no-git-tag-version` so only the file changes locally; then commit that change. Avoid `npm version` *with* its default git tag if you want GitHub Actions to create **`v…`** for you.
+2. Push the commit to **`main`**.
+3. Wait for **Tag version** (creates the tag) then **Release** (builds Mac + Windows and publishes the GitHub Release).
+
+**Manual tag** (optional): `git tag v6.0.1 && git push origin v6.0.1` still works and triggers **Release** the same way.
+
+**Manual release without a version commit**: **Actions** → **Release** → **Run workflow**, enter the version (must match `package.json` **`version`** on `main`).
+
+**Auto-update (Windows):** the release must include **`latest.yml`** and **`.exe.blockmap`** (the Release workflow uploads them with the rest).
+
+Local one-off builds:
+
+```bash
+bun run build:icons && bun run build:mac   # on a Mac → check dist/
+bun run build:icons && bun run build:win   # on Windows → check dist/
 ```
 
 ### Platform-Specific Development
@@ -212,11 +227,22 @@ A: Verify the path to the executable is correct. Use the "Browse" button to sele
 **Q: High CPU usage**
 A: Increase the monitoring interval in settings to reduce frequency of checks.
 
-### Debug Mode
-Run with debug mode for detailed logging:
+### Debug mode
 ```bash
-npm run dev
+bun run dev
 ```
+
+### In-app updates (installed builds)
+
+- Pairkiller checks GitHub Releases in the background (packaged builds only) and notifies you when a newer version is available.
+- Downloads are manual-confirm: you choose when to install. After a build is downloaded, you can use **Install & Restart** or simply **quit the app** — the pending update is applied on quit when possible.
+- Development runs (`bun run dev`) skip automatic update checks to avoid noise.
+
+### Windows install & uninstall
+
+- **NSIS installer**: per-user install under `%LOCALAPPDATA%\\Programs\\Pairkiller` by default; shortcuts and uninstall entry are managed by the installer.
+- **Auto-start** is configured from **Settings** in the app, not forced by the installer, so reinstalls do not override your preference.
+- **Uninstall** removes the app, shortcuts, and registry entries created by the app; your config under `%APPDATA%\\Pairkiller` (or the platform equivalent) is kept so you can reinstall without losing groups unless you delete that folder yourself.
 
 ### Logs
 - **Windows**: `%APPDATA%/Pairkiller/logs/`

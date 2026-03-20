@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 const { autoUpdater } = require('electron-updater');
-const path = require('path');
 
 console.log('🔄 Testing Pairkiller Auto-Updater Configuration...\n');
 

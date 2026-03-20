@@ -1,8 +1,22 @@
-const { ipcRenderer } = require('electron');
-
 let isCheckingUpdates = false;
+let removeUpdateStatus;
+let removeUpdateDownloaded;
 
 document.addEventListener('DOMContentLoaded', async () => {
+    removeUpdateStatus = pairkiller.on('update-status', handleUpdateStatusMessage);
+    removeUpdateDownloaded = pairkiller.on('update-downloaded', (info) => {
+        isCheckingUpdates = false;
+        updateCheckButton(false);
+        showUpdateDialog(
+            'Update Ready',
+            `Version ${info && info.version ? info.version : 'latest'} has been downloaded and is ready to install. Would you like to restart the application now?`,
+            () => {
+                pairkiller.send('install-update');
+            },
+            'Restart Now',
+            'Later'
+        );
+    });
     try {
         await initializeAboutPage();
     } catch (error) {
@@ -11,25 +25,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
+window.addEventListener('beforeunload', () => {
+    if (typeof removeUpdateStatus === 'function') removeUpdateStatus();
+    if (typeof removeUpdateDownloaded === 'function') removeUpdateDownloaded();
+});
+
 async function initializeAboutPage() {
-    try {
-        await Promise.all([
-            setupVersion(),
-            setupUsageToggle(),
-            setupEventListeners()
-        ]);
-        
-        showStatus('Ready', 'success');
-    } catch (error) {
-        throw error;
-    }
+    await Promise.all([
+        setupVersion(),
+        setupUsageToggle(),
+        setupEventListeners()
+    ]);
+
+    showStatus('Ready', 'success');
 }
 
 async function setupVersion() {
     try {
-        const version = await ipcRenderer.invoke('get-version');
+        const version = await pairkiller.invoke('get-version');
         const versionLink = document.getElementById('versionLink');
-        
+
         versionLink.textContent = `v${version}`;
         versionLink.href = 'https://github.com/hybes/pairkiller/releases/tag/v' + version;
         versionLink.title = `View release notes for version ${version}`;
@@ -44,16 +59,16 @@ async function setupVersion() {
 async function setupUsageToggle() {
     try {
         const usageToggle = document.getElementById('usageToggle');
-        const usageEnabled = await ipcRenderer.invoke('get-usage-collection');
-        
+        const usageEnabled = await pairkiller.invoke('get-usage-collection');
+
         if (usageEnabled) {
             usageToggle.classList.add('active');
         }
-        
+
         usageToggle.addEventListener('click', () => {
             const isActive = usageToggle.classList.toggle('active');
-            ipcRenderer.send('toggle-usage-collection', isActive);
-            
+            pairkiller.send('toggle-usage-collection', isActive);
+
             showStatus(
                 isActive ? 'Anonymous usage data enabled' : 'Anonymous usage data disabled',
                 'success'
@@ -67,17 +82,17 @@ async function setupUsageToggle() {
 
 function setupEventListeners() {
     const checkUpdatesBtn = document.getElementById('checkUpdatesBtn');
-    
+
     checkUpdatesBtn.addEventListener('click', handleUpdateCheck);
-    
+
     document.querySelectorAll('.external-link').forEach(link => {
         link.addEventListener('click', (e) => {
             e.preventDefault();
             const url = e.target.closest('a').href;
-            ipcRenderer.send('open-link', url);
+            pairkiller.send('open-link', url);
         });
     });
-    
+
     setupKeyboardShortcuts();
 }
 
@@ -87,7 +102,7 @@ function setupKeyboardShortcuts() {
             e.preventDefault();
             handleUpdateCheck();
         }
-        
+
         if (e.key === 'Escape') {
             window.close();
         }
@@ -96,14 +111,14 @@ function setupKeyboardShortcuts() {
 
 async function handleUpdateCheck() {
     if (isCheckingUpdates) return;
-    
+
     try {
         isCheckingUpdates = true;
         updateCheckButton(true);
         showStatus('Checking for updates...', 'info');
-        
-        ipcRenderer.send('check-for-updates');
-        
+
+        pairkiller.send('check-for-updates');
+
         setTimeout(() => {
             if (isCheckingUpdates) {
                 isCheckingUpdates = false;
@@ -111,7 +126,7 @@ async function handleUpdateCheck() {
                 showStatus('Update check completed', 'success');
             }
         }, 10000);
-        
+
     } catch (error) {
         console.error('Error checking for updates:', error);
         isCheckingUpdates = false;
@@ -122,7 +137,7 @@ async function handleUpdateCheck() {
 
 function updateCheckButton(checking) {
     const button = document.getElementById('checkUpdatesBtn');
-    
+
     if (checking) {
         button.disabled = true;
         button.innerHTML = `
@@ -142,12 +157,46 @@ function showStatus(message, type = 'info') {
     const statusElement = document.getElementById('updateStatus');
     statusElement.textContent = message;
     statusElement.className = `status-message ${type === 'success' ? 'status-success' : ''}`;
-    
+
     if (type === 'success' || type === 'error') {
         setTimeout(() => {
             statusElement.textContent = '';
         }, 5000);
     }
+}
+
+function handleUpdateStatusMessage(message) {
+    if (typeof message !== 'string') {
+        return;
+    }
+    if (message.includes('ready to install')) {
+        return;
+    }
+
+    isCheckingUpdates = false;
+    updateCheckButton(false);
+
+    if (message.includes('Checking for updates')) {
+        showStatus('Checking for updates...', 'info');
+        return;
+    }
+
+    if (message.includes('Downloading update:')) {
+        showStatus(message, 'info');
+        return;
+    }
+
+    if (message.includes('latest version') || message.includes('No updates available')) {
+        showStatus('You have the latest version!', 'success');
+        return;
+    }
+
+    if (message.includes('Error') || message.includes('Failed') || message.includes('Unable to check')) {
+        showStatus(message, 'error');
+        return;
+    }
+
+    showStatus(message, 'info');
 }
 
 function showUpdateDialog(title, message, onConfirm, confirmText = 'Confirm', cancelText = 'Cancel') {
@@ -166,7 +215,7 @@ function showUpdateDialog(title, message, onConfirm, confirmText = 'Confirm', ca
         z-index: 2000;
         animation: fadeIn 0.2s ease-out;
     `;
-    
+
     dialog.innerHTML = `
         <div class="dialog" style="
             background: var(--surface-elevated);
@@ -186,27 +235,27 @@ function showUpdateDialog(title, message, onConfirm, confirmText = 'Confirm', ca
             </div>
         </div>
     `;
-    
+
     const confirmBtn = dialog.querySelector('.confirm-btn');
     const cancelBtn = dialog.querySelector('.cancel-btn');
-    
+
     confirmBtn.addEventListener('click', () => {
         document.body.removeChild(dialog);
         if (onConfirm) onConfirm();
     });
-    
+
     if (cancelBtn) {
         cancelBtn.addEventListener('click', () => {
             document.body.removeChild(dialog);
         });
     }
-    
+
     dialog.addEventListener('click', (e) => {
         if (e.target === dialog) {
             document.body.removeChild(dialog);
         }
     });
-    
+
     document.body.appendChild(dialog);
 }
 
@@ -216,58 +265,13 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-ipcRenderer.on('update-status', (event, status, info) => {
-    isCheckingUpdates = false;
-    updateCheckButton(false);
-    
-    switch (status) {
-        case 'checking-for-update':
-            showStatus('Checking for updates...', 'info');
-            break;
-            
-        case 'update-available':
-            showStatus(`Update v${info?.version || 'latest'} is available and downloading...`, 'success');
-            break;
-            
-        case 'update-not-available':
-            showStatus('You have the latest version!', 'success');
-            break;
-            
-        case 'update-downloaded':
-            showUpdateDialog(
-                'Update Ready',
-                `Version ${info?.version || 'latest'} has been downloaded and is ready to install. Would you like to restart the application now?`,
-                () => {
-                    ipcRenderer.send('install-update');
-                },
-                'Restart Now',
-                'Later'
-            );
-            break;
-            
-        case 'error':
-            const errorMessage = info?.message || info || 'Unknown error occurred';
-            console.error('Update error:', errorMessage);
-            showStatus(`Update check failed: ${errorMessage}`, 'error');
-            break;
-            
-        case 'download-progress':
-            const percent = Math.round(info?.percent || 0);
-            showStatus(`Downloading update: ${percent}%`, 'info');
-            break;
-            
-        default:
-            console.log('Unknown update status:', status, info);
-    }
-});
-
 const style = document.createElement('style');
 style.textContent = `
     @keyframes fadeIn {
         from { opacity: 0; }
         to { opacity: 1; }
     }
-    
+
     @keyframes scaleIn {
         from {
             transform: scale(0.9);
@@ -278,13 +282,13 @@ style.textContent = `
             opacity: 1;
         }
     }
-    
+
     .btn-primary {
         background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
         color: white;
         border: none;
     }
-    
+
     .btn-primary:hover {
         background: linear-gradient(135deg, var(--primary-hover), #1d4ed8);
     }

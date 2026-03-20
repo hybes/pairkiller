@@ -28,8 +28,7 @@
   WriteRegStr HKCU "Software\Pairkiller" "Version" "${VERSION}"
   WriteRegStr HKCU "Software\Pairkiller" "InstallDate" "$$(Date)"
   
-  ; Set up auto-start
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Pairkiller" '"$INSTDIR\${PRODUCT_NAME}.exe" --startup'
+  ; Auto-start is controlled from inside the app (Settings) so upgrades respect user choice
   
   ; Verify installation
   IfFileExists "$INSTDIR\${PRODUCT_NAME}.exe" InstallSuccess InstallFailed
@@ -37,7 +36,6 @@
   InstallSuccess:
     DetailPrint "✓ Installation completed successfully!"
     DetailPrint "✓ Files installed to: $INSTDIR"
-    DetailPrint "✓ Auto-start configured"
     Goto InstallEnd
     
   InstallFailed:
@@ -50,11 +48,11 @@
 !macro customUnInstall
   DetailPrint "=== Pairkiller Uninstallation Started ==="
   
-  ; Kill running processes
+  ; Kill running processes (ignore exit code if not running)
   nsExec::ExecToLog 'taskkill /F /IM "Pairkiller.exe" /T'
-  Sleep 1000
+  Sleep 1500
   
-  ; Remove from Windows startup
+  ; Remove any legacy startup entry (app may have added this when auto-start was enabled)
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Pairkiller"
   
   ; Remove registry entries

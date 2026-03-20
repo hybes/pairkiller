@@ -1,6 +1,3 @@
-const fs = require('fs').promises;
-const path = require('path');
-
 // Read current version from package.json
 const packageJson = require('./package.json');
 const CURRENT_VERSION = packageJson.version;

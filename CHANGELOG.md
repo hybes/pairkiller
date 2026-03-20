@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [6.0.0](https://github.com/hybes/pairkiller/releases/tag/v6.0.0) (2026-03-19)
+
+### Highlights
+
+- **Runtime & tooling**: Electron 41, Bun for installs and scripts, Tailwind CSS v4, ESLint 10, `@sentry/electron` 7, refreshed CI on Bun.
+- **Security & stability**: Context-isolated renderers with a whitelisted preload API; single-instance lock; safer config saves and updater scheduling; clearer install/uninstall behaviour on Windows (auto-start controlled in-app only).
+- **Updates**: Release metadata stays compatible with **electron-updater from v5.x** (`electronUpdaterCompatibility` **>=5.0.0**) so existing installs can upgrade cleanly; pending updates can complete on normal quit when appropriate.
+- **Docs & versioning**: README and artefacts aligned with current release naming; **6.0.0** is the shipping app version in `package.json`.
+
 ### [4.6.2](https://github.com/hybes/pairkiller/compare/v4.6.1...v4.6.2) (2025-09-11)
 
 

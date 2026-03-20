@@ -1,6 +1,3 @@
-const { ipcRenderer } = require('electron');
-const path = require('path');
-
 let config;
 let presets;
 let isLoading = false;
@@ -19,8 +16,8 @@ async function initializeApp() {
     showLoading(true);
     
     try {
-        config = await ipcRenderer.invoke('get-config');
-        presets = await ipcRenderer.invoke('get-presets');
+        config = await pairkiller.invoke('get-config');
+        presets = await pairkiller.invoke('get-presets');
         
         await Promise.all([
             loadPresets(),
@@ -58,7 +55,7 @@ function setupEventListeners() {
             showNotification('Updating auto-start setting...', 'info');
             
             try {
-                const result = await ipcRenderer.invoke('set-auto-start', enabled);
+                const result = await pairkiller.invoke('set-auto-start', enabled);
                 if (result.success) {
                     showNotification(`Auto-start ${enabled ? 'enabled' : 'disabled'}`, 'success');
                 } else {
@@ -72,7 +69,35 @@ function setupEventListeners() {
             }
         });
     }
-    
+
+    const showInDockToggle = document.getElementById('showInDockToggle');
+    if (showInDockToggle) {
+        showInDockToggle.addEventListener('change', async (e) => {
+            const showInDock = e.target.checked;
+            const nextBackgroundMode = !showInDock;
+            showNotification('Updating Dock preference...', 'info');
+            try {
+                const result = await pairkiller.invoke('set-background-mode', nextBackgroundMode);
+                if (result.success) {
+                    if (config && config.ui) {
+                        config.ui.backgroundMode = result.backgroundMode;
+                    }
+                    showNotification(
+                        showInDock ? 'Dock icon shown' : 'Menu bar only — Dock and App Switcher hidden',
+                        'success'
+                    );
+                } else {
+                    showNotification(result.error || 'Failed to update Dock preference', 'error');
+                    e.target.checked = !showInDock;
+                }
+            } catch (error) {
+                console.error('Error updating Dock preference:', error);
+                showNotification('Failed to update Dock preference', 'error');
+                e.target.checked = !showInDock;
+            }
+        });
+    }
+
     window.addEventListener('beforeunload', (e) => {
         if (unsavedChanges) {
             e.preventDefault();
@@ -89,11 +114,15 @@ function setupEventListeners() {
 }
 
 async function loadPresets() {
-    const presetsContainer = document.getElementById('presets');
-    presetsContainer.innerHTML = '';
+    const presetCardsMount = document.getElementById('preset-cards-mount');
+    if (!presetCardsMount) {
+        return;
+    }
+    presetCardsMount.innerHTML = '';
 
-    if (!presets || Object.keys(presets).length === 0) {
-        presetsContainer.innerHTML = `
+    const library = presets;
+    if (!library || typeof library !== 'object' || typeof library.nodeType === 'number' || Array.isArray(library) || Object.keys(library).length === 0) {
+        presetCardsMount.innerHTML = `
             <div class="empty-state">
                 <i class="fas fa-magic"></i>
                 <h3>No Presets Available</h3>
@@ -103,7 +132,7 @@ async function loadPresets() {
         return;
     }
 
-    Object.entries(presets).forEach(([key, preset]) => {
+    Object.entries(library).forEach(([key, preset]) => {
         const card = document.createElement('div');
         card.className = 'preset-card fade-in';
         card.dataset.preset = key;
@@ -124,7 +153,7 @@ async function loadPresets() {
             showNotification(`Added preset: ${preset.name}`, 'success');
         });
 
-        presetsContainer.appendChild(card);
+        presetCardsMount.appendChild(card);
     });
 }
 
@@ -150,8 +179,20 @@ async function loadSystemSettings() {
     try {
         const autoStartToggle = document.getElementById('autoStartToggle');
         if (autoStartToggle) {
-            const isEnabled = await ipcRenderer.invoke('get-auto-start');
+            const isEnabled = await pairkiller.invoke('get-auto-start');
             autoStartToggle.checked = isEnabled;
+        }
+
+        const dockRow = document.getElementById('macDockSettingRow');
+        const showInDockToggle = document.getElementById('showInDockToggle');
+        if (dockRow && showInDockToggle) {
+            const mode = await pairkiller.invoke('get-background-mode');
+            if (mode.isMacOS && !mode.isDev) {
+                dockRow.style.display = 'flex';
+                showInDockToggle.checked = !mode.backgroundMode;
+            } else {
+                dockRow.style.display = 'none';
+            }
         }
     } catch (error) {
         console.error('Failed to load system settings:', error);
@@ -293,11 +334,11 @@ function setupAppEntryEventListeners(entry) {
 
     browseBtn.addEventListener('click', async () => {
         try {
-            const result = await ipcRenderer.invoke('open-file-dialog');
+            const result = await pairkiller.invoke('open-file-dialog');
             if (!result.canceled && result.filePath) {
                 pathInput.value = result.filePath;
                 if (!nameInput.value) {
-                    nameInput.value = path.basename(result.filePath);
+                    nameInput.value = pairkiller.basename(result.filePath);
                 }
                 markUnsavedChanges();
             }
@@ -411,7 +452,7 @@ async function saveSettings() {
             appGroups: validation.groups
         };
         
-        const result = await ipcRenderer.invoke('save-settings', newConfig);
+        const result = await pairkiller.invoke('save-settings', newConfig);
         
         if (result.success) {
             config = newConfig;

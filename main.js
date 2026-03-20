@@ -1,19 +1,40 @@
-const { app, BrowserWindow, Tray, Menu, dialog, ipcMain, Notification, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, dialog, ipcMain, Notification, shell, nativeImage } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs').promises;
 const fsSync = require('fs');
 const { exec } = require('child_process');
 const util = require('util');
-const Sentry = require('@sentry/electron');
+const Sentry = require('@sentry/electron/main');
 require('dotenv').config();
 
-// Initialize Sentry with improved configuration
+const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev');
+
+if (!app.requestSingleInstanceLock()) {
+    app.quit();
+    process.exit(0);
+}
+
+app.on('second-instance', () => {
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+        settingsWindow.show();
+        settingsWindow.focus();
+    } else {
+        openSettingsWindow();
+    }
+    if (updateWindow && !updateWindow.isDestroyed()) {
+        updateWindow.show();
+        updateWindow.focus();
+    }
+});
+
+const sentryDsn = process.env.SENTRY_DSN || 'https://8cf399a69648dc38f3031071446b40e7@o4507687244136448.ingest.de.sentry.io/4508365136855120';
+
 Sentry.init({
-    dsn: 'https://8cf399a69648dc38f3031071446b40e7@o4507687244136448.ingest.de.sentry.io/4508365136855120',
+    dsn: sentryDsn,
     release: app.getVersion(),
-    environment: process.env.NODE_ENV || 'production',
-    debug: process.env.NODE_ENV === 'development',
+    environment: isDev ? 'development' : (process.env.NODE_ENV || 'production'),
+    debug: isDev,
     beforeSend(event) {
         event.tags = {
             ...event.tags,
@@ -62,7 +83,6 @@ const isWindows = platform === 'win32';
 const isMacOS = platform === 'darwin';
 
 // Global state management
-let mainWindow;
 let tray = null;
 let monitoring = false;
 let monitoringTimeout = null;
@@ -163,6 +183,49 @@ const defaultPresets = {
         ] : [
             { name: "Discord" }
         ],
+        controlledApps: [],
+        condition: "any"
+    },
+    minecraftJava: {
+        name: "Minecraft Java",
+        description: "Monitor Minecraft Java Edition and add your own companion tools",
+        monitoredApps: isWindows ? [
+            { name: "javaw.exe" }
+        ] : [
+            { name: "java" }
+        ],
+        controlledApps: [],
+        condition: "any"
+    },
+    epicFortnite: {
+        name: "Epic / Fortnite",
+        description: "Monitor the Epic Games Launcher or Fortnite—add overlays or helpers under controlled apps",
+        monitoredApps: isWindows ? [
+            { name: "FortniteClient-Win64-Shipping.exe" },
+            { name: "EpicGamesLauncher.exe" }
+        ] : [
+            { name: "FortniteClient-Mac-Shipping" },
+            { name: "Epic Games Launcher" }
+        ],
+        controlledApps: [],
+        condition: "any"
+    },
+    obsStreaming: {
+        name: "OBS streaming",
+        description: "When OBS is running, sync or launch helper apps you configure",
+        monitoredApps: isWindows ? [
+            { name: "obs64.exe" },
+            { name: "obs32.exe" }
+        ] : [
+            { name: "OBS" }
+        ],
+        controlledApps: [],
+        condition: "any"
+    },
+    customOverlay: {
+        name: "Game + overlay (blank)",
+        description: "Monitor a game you add below; no default companions—set your own overlay paths",
+        monitoredApps: [],
         controlledApps: [],
         condition: "any"
     }
@@ -371,13 +434,18 @@ function compareVersions(a, b) {
 
 // Enhanced config saving with atomic writes
 async function saveConfig() {
+    const tempPath = `${configPath}.tmp`;
     try {
-        const tempPath = `${configPath}.tmp`;
-        await fs.writeFile(tempPath, JSON.stringify(config, null, 2));
+        await fs.mkdir(path.dirname(configPath), { recursive: true });
+        await fs.writeFile(tempPath, JSON.stringify(config, null, 2), 'utf8');
         await fs.rename(tempPath, configPath);
         debug('Configuration saved successfully');
         return true;
     } catch (error) {
+        try {
+            await fs.unlink(tempPath);
+        } catch (_) {
+        }
         console.error('Error saving config:', error);
         Sentry.captureException(error);
         throw error;
@@ -507,10 +575,48 @@ async function isTaskRunning(processName) {
     }
 }
 
+function macOSDockMenuEligible() {
+    return isMacOS && (!backgroundMode || isDev);
+}
+
+function applyMacOSPresentation() {
+    if (!isMacOS) {
+        return;
+    }
+    if (isDev) {
+        try {
+            app.setActivationPolicy('regular');
+        } catch (err) {
+            console.error('setActivationPolicy:', err);
+        }
+        if (app.dock) {
+            app.dock.show();
+        }
+        return;
+    }
+    try {
+        if (backgroundMode) {
+            app.setActivationPolicy('accessory');
+            if (app.dock) {
+                app.dock.hide();
+            }
+        } else {
+            app.setActivationPolicy('regular');
+            if (app.dock) {
+                app.dock.show();
+            }
+        }
+    } catch (err) {
+        console.error('applyMacOSPresentation:', err);
+    }
+}
+
 function updateAllMenus() {
     updateTrayMenu();
     if (isMacOS) {
-        setupDock();
+        if (macOSDockMenuEligible()) {
+            setupDock();
+        }
         setupMenuBar();
     }
 }
@@ -731,7 +837,7 @@ async function ensureAppIsRunning(appPath) {
         if (!isAppRunning) {
             debug(`Starting app: ${appName}`);
             
-            return new Promise((resolve, reject) => {
+            return new Promise((resolve) => {
                 let command;
                 
                 if (isWindows) {
@@ -748,7 +854,7 @@ async function ensureAppIsRunning(appPath) {
                     command = `"${appPath}" &`;
                 }
                 
-                exec(command, { timeout: 5000, windowsHide: true }, (error, stdout, stderr) => {
+                exec(command, { timeout: 5000, windowsHide: true }, (error, _stdout, _stderr) => {
                     if (error) {
                         // Check for common error types that shouldn't be reported to Sentry
                         const errorMessage = error.message.toLowerCase();
@@ -811,7 +917,7 @@ async function ensureAppIsRunning(appPath) {
 // Enhanced app stopping - now cross-platform
 async function stopApp(appName) {
     try {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             let command;
             
             if (isWindows) {
@@ -825,7 +931,7 @@ async function stopApp(appName) {
                 command = `pkill -f "${processNameWithoutExt}"`;
             }
             
-            exec(command, { timeout: 3000, windowsHide: true }, (error, stdout, stderr) => {
+            exec(command, { timeout: 3000, windowsHide: true }, (error, _stdout, _stderr) => {
                 if (error) {
                     // Handle common errors that shouldn't be reported to Sentry
                     const errorMessage = error.message.toLowerCase();
@@ -886,27 +992,111 @@ async function stopApp(appName) {
     }
 }
 
-// Enhanced tray setup with platform-specific behavior
+function trayIconImageCandidates() {
+    const templatePaths = [
+        path.join(__dirname, 'trayTemplate.png'),
+        path.join(__dirname, 'build', 'icons', 'trayTemplate.png'),
+    ];
+    const appIconPaths = [
+        path.join(__dirname, 'icon.png'),
+        path.join(__dirname, 'build', 'icons', 'icon.png'),
+    ];
+    if (isMacOS) {
+        return [...templatePaths, ...appIconPaths];
+    }
+    return [...appIconPaths, ...templatePaths];
+}
+
+function trayIconImage() {
+    for (const iconPath of trayIconImageCandidates()) {
+        if (!fsSync.existsSync(iconPath)) {
+            continue;
+        }
+        const raw = nativeImage.createFromPath(iconPath);
+        if (raw.isEmpty()) {
+            continue;
+        }
+        const base = path.basename(iconPath);
+        const isTemplateAsset = base === 'trayTemplate.png';
+        if (isMacOS) {
+            const dip = 16;
+            const low = raw.resize({ width: dip, height: dip, quality: 'best' });
+            const high = raw.resize({ width: dip * 2, height: dip * 2, quality: 'best' });
+            if (low.isEmpty() || high.isEmpty()) {
+                continue;
+            }
+            try {
+                const composed = nativeImage.createEmpty();
+                composed.addRepresentation({
+                    scaleFactor: 1,
+                    width: dip,
+                    height: dip,
+                    buffer: low.toPNG(),
+                });
+                composed.addRepresentation({
+                    scaleFactor: 2,
+                    width: dip,
+                    height: dip,
+                    buffer: high.toPNG(),
+                });
+                if (isTemplateAsset) {
+                    composed.setTemplateImage(true);
+                }
+                return composed;
+            } catch (err) {
+                if (!isTemplateAsset) {
+                    return high;
+                }
+            }
+        } else {
+            const px = 32;
+            const sized = raw.resize({ width: px, height: px, quality: 'best' });
+            if (!sized.isEmpty()) {
+                return sized;
+            }
+        }
+    }
+    return null;
+}
+
+// Enhanced tray setup with platform-specific behaviour
 function setupTray() {
     try {
+        if (tray) {
+            tray.destroy();
+            tray = null;
+        }
+
+        const icon = trayIconImage();
+        if (!icon) {
+            console.error('Pairkiller: could not load a tray icon; check icon.png next to main.js');
+            Sentry.captureMessage('Tray icon load failed', { level: 'error' });
+            if (isMacOS) {
+                try {
+                    app.setActivationPolicy('regular');
+                } catch (err) {
+                    console.error('setActivationPolicy:', err);
+                }
+            }
+            if (app.dock) {
+                app.dock.show();
+            }
+            return;
+        }
+
         if (isMacOS) {
-            // On macOS, tray is primary interface in background mode
-            tray = new Tray(path.join(__dirname, 'icon.png'));
-            tray.setToolTip('Pairkiller - Right-click for options');
-            
-            // Handle tray clicks on macOS
+            tray = new Tray(icon);
+            tray.setToolTip('Pairkiller — tap for Settings, click-and-hold or secondary click for menu');
+
             tray.on('click', () => {
-                // Single click opens settings
                 openSettingsWindow();
             });
-            
-            // Only set up dock if not in background mode
-            if (!backgroundMode) {
+
+            if (macOSDockMenuEligible()) {
                 setupDock();
             }
         } else {
-            // On Windows/Linux, use system tray as primary
-            tray = new Tray(path.join(__dirname, 'icon.png'));
+            tray = new Tray(icon);
             tray.setToolTip('Pairkiller - App Monitor & Controller');
             tray.on('double-click', () => openSettingsWindow());
             tray.on('click', () => openSettingsWindow());
@@ -952,9 +1142,8 @@ function setupDock() {
         ]);
         
         app.dock.setMenu(dockMenu);
-        
-        // Show dock icon
-        if (app.dock) {
+
+        if (app.dock && (!backgroundMode || isDev)) {
             app.dock.show();
         }
         
@@ -1040,9 +1229,8 @@ function updateTrayMenu() {
     
     const contextMenu = Menu.buildFromTemplate(menuTemplate);
     tray.setContextMenu(contextMenu);
-    
-    // Update dock menu on macOS if visible
-    if (isMacOS && !backgroundMode) {
+
+    if (macOSDockMenuEligible()) {
         setupDock();
     }
 }
@@ -1053,27 +1241,16 @@ function toggleBackgroundMode() {
     
     backgroundMode = !backgroundMode;
     config.ui.backgroundMode = backgroundMode;
-    
-    if (backgroundMode) {
-        // Hide from dock and cmd+tab
-        if (app.dock) {
-            app.dock.hide();
-        }
-        debug('Switched to background mode - hidden from dock');
-    } else {
-        // Show in dock and cmd+tab
-        if (app.dock) {
-            app.dock.show();
-        }
+
+    applyMacOSPresentation();
+    if (!backgroundMode || isDev) {
         setupDock();
-        debug('Switched to foreground mode - visible in dock');
     }
-    
-    // Save the preference
+    debug(backgroundMode ? 'Background / menu-bar only (no Dock, no App Switcher)' : 'Foreground / Dock + App Switcher');
+
     saveConfig().catch(console.error);
-    
-    // Update tray menu to reflect new state
-    updateTrayMenu();
+
+    updateAllMenus();
 }
 
 // Enhanced window management
@@ -1098,9 +1275,9 @@ function openSettingsWindow() {
         minWidth: 1000,
         minHeight: 700,
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false,
-            enableRemoteModule: false
+            contextIsolation: true,
+            nodeIntegration: false,
+            preload: path.join(__dirname, 'preload.js'),
         },
         backgroundColor: '#1c1917',
         show: false,
@@ -1124,15 +1301,14 @@ function openSettingsWindow() {
                 app.focus();
             }
         }
-        if (process.env.NODE_ENV === 'development') {
+        if (isDev) {
             settingsWindow.webContents.openDevTools();
         }
     });
 
     settingsWindow.on('closed', () => {
         settingsWindow = null;
-        // On macOS, update dock menu when window closes (if visible)
-        if (isMacOS && !backgroundMode) {
+        if (macOSDockMenuEligible()) {
             setupDock();
         }
     });
@@ -1157,8 +1333,9 @@ function openAboutWindow() {
         width: 600,
         height: 450,
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false
+            contextIsolation: true,
+            nodeIntegration: false,
+            preload: path.join(__dirname, 'preload.js'),
         },
         resizable: false,
         maximizable: false,
@@ -1195,8 +1372,8 @@ function openUpdateWindow() {
         width: 500,
         height: 300,
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false,
+            contextIsolation: true,
+            nodeIntegration: false,
             preload: path.join(__dirname, 'preload.js'),
         },
         resizable: false,
@@ -1216,7 +1393,39 @@ function openUpdateWindow() {
     });
 }
 
-// Enhanced IPC handlers
+function sendUpdateStatusToRenderers(message) {
+    if (updateWindow && !updateWindow.isDestroyed()) {
+        updateWindow.webContents.send('update-status', message);
+    }
+    if (aboutWindow && !aboutWindow.isDestroyed()) {
+        aboutWindow.webContents.send('update-status', message);
+    }
+}
+
+function sendUpdateProgressToRenderers(percent) {
+    if (updateWindow && !updateWindow.isDestroyed()) {
+        updateWindow.webContents.send('update-progress', percent);
+    }
+    if (aboutWindow && !aboutWindow.isDestroyed()) {
+        aboutWindow.webContents.send('update-progress', percent);
+    }
+}
+
+function sendUpdateDownloadedToRenderers(info) {
+    if (updateWindow && !updateWindow.isDestroyed()) {
+        updateWindow.webContents.send('update-downloaded', info);
+    }
+    if (aboutWindow && !aboutWindow.isDestroyed()) {
+        aboutWindow.webContents.send('update-downloaded', info);
+    }
+}
+
+ipcMain.on('close-update-window', () => {
+    if (updateWindow && !updateWindow.isDestroyed()) {
+        updateWindow.close();
+    }
+});
+
 ipcMain.handle('get-version', () => app.getVersion());
 
 ipcMain.handle('get-config', () => {
@@ -1226,7 +1435,7 @@ ipcMain.handle('get-config', () => {
 
 ipcMain.handle('get-presets', () => {
     debug('Sending presets to renderer');
-    return defaultPresets;
+    return structuredClone(defaultPresets);
 });
 
 // Validate configuration before saving
@@ -1293,13 +1502,11 @@ ipcMain.handle('save-settings', async (event, newConfig) => {
         // Handle background mode changes on macOS
         if (isMacOS && config.ui.backgroundMode !== backgroundMode) {
             backgroundMode = config.ui.backgroundMode;
-            if (backgroundMode) {
-                if (app.dock) app.dock.hide();
-            } else {
-                if (app.dock) app.dock.show();
+            applyMacOSPresentation();
+            if (!backgroundMode || isDev) {
                 setupDock();
             }
-            updateTrayMenu();
+            updateAllMenus();
         }
         
         await saveConfig();
@@ -1483,8 +1690,34 @@ ipcMain.handle('toggle-background-mode', async () => {
     }
 });
 
-ipcMain.handle('get-background-mode', () => {
-    return { backgroundMode: isMacOS ? backgroundMode : false };
+ipcMain.handle('get-background-mode', () => ({
+    backgroundMode: isMacOS ? backgroundMode : false,
+    isMacOS,
+    isDev,
+}));
+
+ipcMain.handle('set-background-mode', async (event, nextBackgroundMode) => {
+    if (!isMacOS) {
+        return { success: false, error: 'Only available on macOS', backgroundMode: false };
+    }
+    if (isDev) {
+        return { success: false, error: 'Not available in development mode', backgroundMode };
+    }
+    if (typeof nextBackgroundMode !== 'boolean') {
+        return { success: false, error: 'Invalid value', backgroundMode };
+    }
+    if (backgroundMode === nextBackgroundMode) {
+        return { success: true, backgroundMode };
+    }
+    backgroundMode = nextBackgroundMode;
+    config.ui.backgroundMode = backgroundMode;
+    applyMacOSPresentation();
+    if (!backgroundMode || isDev) {
+        setupDock();
+    }
+    saveConfig().catch(console.error);
+    updateAllMenus();
+    return { success: true, backgroundMode };
 });
 
 // Auto-start management handlers
@@ -1547,11 +1780,10 @@ autoUpdater.setFeedURL({
     repo: 'pairkiller'
 });
 
-// Disable signature verification for unsigned builds
-// This is safe for open-source applications distributed via GitHub
-autoUpdater.autoDownload = false; // Don't auto-download, let user confirm
+autoUpdater.autoDownload = false;
 autoUpdater.allowDowngrade = false;
 autoUpdater.allowPrerelease = false;
+autoUpdater.autoInstallOnAppQuit = true;
 
 // For Windows: disable signature checking for unsigned builds
 if (isWindows) {
@@ -1568,8 +1800,8 @@ autoUpdater.on('checking-for-update', () => {
     debug('Checking for updates');
     
     // Only show status if it's a manual check
-    if (isManualUpdateCheck && updateWindow && !updateWindow.isDestroyed()) {
-        updateWindow.webContents.send('update-status', 'Checking for updates...');
+    if (isManualUpdateCheck) {
+        sendUpdateStatusToRenderers('Checking for updates...');
     }
 });
 
@@ -1591,9 +1823,8 @@ autoUpdater.on('update-available', (info) => {
     setTimeout(() => {
         autoUpdater.downloadUpdate().catch(error => {
             console.error('Failed to download update:', error);
-            if (updateWindow && !updateWindow.isDestroyed()) {
-                updateWindow.webContents.send('update-status', 'Failed to download update - please download manually from GitHub');
-            }
+            isUpdating = false;
+            sendUpdateStatusToRenderers('Failed to download update - please download manually from GitHub');
         });
     }, 2000); // Give user time to see the notification
     
@@ -1605,8 +1836,8 @@ autoUpdater.on('update-not-available', () => {
     console.log('[Pairkiller] No updates available');
     
     // Only show "no updates" message if it was a manual check
-    if (isManualUpdateCheck && updateWindow && !updateWindow.isDestroyed()) {
-        updateWindow.webContents.send('update-status', 'You have the latest version.');
+    if (isManualUpdateCheck) {
+        sendUpdateStatusToRenderers('You have the latest version.');
         setTimeout(() => {
             if (updateWindow && !updateWindow.isDestroyed()) {
                 updateWindow.close();
@@ -1620,186 +1851,150 @@ autoUpdater.on('update-not-available', () => {
 
 autoUpdater.on('error', (err) => {
     console.error('[Pairkiller] Auto-updater error:', err);
-    
-    // Handle different types of errors gracefully
-    if (err.message && err.message.includes('404')) {
-        console.log('[Pairkiller] Auto-updater: Release files not found (404). This is normal for new releases or development builds.');
-        
-        // Only show error message if it was a manual check
-        if (isManualUpdateCheck && updateWindow && !updateWindow.isDestroyed()) {
-            updateWindow.webContents.send('update-status', 'No updates available at this time');
-            setTimeout(() => {
-                if (updateWindow && !updateWindow.isDestroyed()) {
-                    updateWindow.close();
-                }
-            }, 2000);
-        }
-    } else if (err.message && err.message.includes('ENOTFOUND')) {
-        console.log('[Pairkiller] Auto-updater: Network error - unable to reach update server.');
-        
-        // Only show error message if it was a manual check
-        if (isManualUpdateCheck && updateWindow && !updateWindow.isDestroyed()) {
-            updateWindow.webContents.send('update-status', 'Unable to check for updates - please check your internet connection');
-            setTimeout(() => {
-                if (updateWindow && !updateWindow.isDestroyed()) {
-                    updateWindow.close();
-                }
-            }, 3000);
-        }
-    } else if (err.message && err.message.includes('ECONNRESET')) {
-        console.log('[Pairkiller] Auto-updater: Connection reset - retrying in 30 seconds.');
-        
-        // Only show error message if it was a manual check
-        if (isManualUpdateCheck && updateWindow && !updateWindow.isDestroyed()) {
-            updateWindow.webContents.send('update-status', 'Connection interrupted - will retry automatically');
-            setTimeout(() => {
-                if (updateWindow && !updateWindow.isDestroyed()) {
-                    updateWindow.close();
-                }
-            }, 3000);
-        }
-        
-        // Retry after 30 seconds
-        setTimeout(() => {
-            if (process.env.NODE_ENV !== 'development') {
-                autoUpdater.checkForUpdates().catch(console.error);
+    const msg = err && err.message ? String(err.message) : String(err);
+
+    try {
+        if (msg.includes('404')) {
+            console.log('[Pairkiller] Auto-updater: Release files not found (404). This is normal for new releases or development builds.');
+            if (isManualUpdateCheck) {
+                sendUpdateStatusToRenderers('No updates available at this time');
+                setTimeout(() => {
+                    if (updateWindow && !updateWindow.isDestroyed()) {
+                        updateWindow.close();
+                    }
+                }, 2000);
             }
-        }, 30000);
-    } else if (err.message && (err.message.includes('code signature') || 
-                               err.message.includes('code failed to satisfy') ||
-                               err.message.includes('validation') ||
-                               err.message.includes('not signed by the application owner'))) {
-        console.log('[Pairkiller] Auto-updater: Code signature validation failed. This is expected for unsigned open-source applications.');
-        
-        // Only show helpful message if it was a manual check
-        if (isManualUpdateCheck && updateWindow && !updateWindow.isDestroyed()) {
-            updateWindow.webContents.send('update-status', 'App is unsigned - please download updates from GitHub releases page');
+        } else if (msg.includes('ENOTFOUND')) {
+            console.log('[Pairkiller] Auto-updater: Network error - unable to reach update server.');
+            if (isManualUpdateCheck) {
+                sendUpdateStatusToRenderers('Unable to check for updates - please check your internet connection');
+                setTimeout(() => {
+                    if (updateWindow && !updateWindow.isDestroyed()) {
+                        updateWindow.close();
+                    }
+                }, 3000);
+            }
+        } else if (msg.includes('ECONNRESET')) {
+            console.log('[Pairkiller] Auto-updater: Connection reset - retrying in 30 seconds.');
+            if (isManualUpdateCheck) {
+                sendUpdateStatusToRenderers('Connection interrupted - will retry automatically');
+                setTimeout(() => {
+                    if (updateWindow && !updateWindow.isDestroyed()) {
+                        updateWindow.close();
+                    }
+                }, 3000);
+            }
             setTimeout(() => {
-                if (updateWindow && !updateWindow.isDestroyed()) {
-                    updateWindow.close();
+                if (!isDev) {
+                    autoUpdater.checkForUpdates().catch(console.error);
                 }
-                // Open GitHub releases page
-                shell.openExternal('https://github.com/hybes/pairkiller/releases/latest');
-            }, 5000);
-        }
-        
-        // Don't report code signature errors to Sentry - these are expected for unsigned apps
-        debug('Code signature validation error (expected for unsigned app):', err.message);
-    } else if (err.message && (err.message.includes('EACCES') || 
-                               err.message.includes('permission denied') ||
-                               err.message.includes('access denied'))) {
-        console.log('[Pairkiller] Auto-updater: Permission denied - app may need to be run as administrator for updates.');
-        
-        // Only show error message if it was a manual check
-        if (isManualUpdateCheck && updateWindow && !updateWindow.isDestroyed()) {
-            updateWindow.webContents.send('update-status', 'Permission denied - try running as administrator');
-            setTimeout(() => {
-                if (updateWindow && !updateWindow.isDestroyed()) {
-                    updateWindow.close();
-                }
-            }, 5000);
-        }
-        
-        // Don't report permission errors to Sentry - these are user environment issues
-        debug('Permission error during update (not reporting to Sentry):', err.message);
-    } else if (err.message && err.message.includes('ENOSPC')) {
-        console.log('[Pairkiller] Auto-updater: Insufficient disk space for update.');
-        
-        // Only show error message if it was a manual check
-        if (isManualUpdateCheck && updateWindow && !updateWindow.isDestroyed()) {
-            updateWindow.webContents.send('update-status', 'Insufficient disk space for update');
-            setTimeout(() => {
-                if (updateWindow && !updateWindow.isDestroyed()) {
-                    updateWindow.close();
-                }
-            }, 5000);
-        }
-        
-        // Don't report disk space errors to Sentry
-        debug('Disk space error during update (not reporting to Sentry):', err.message);
-    } else {
-        // For other errors, capture in Sentry but with reduced severity and better filtering
-        const shouldReport = !err.message.includes('net::') && 
-                           !err.message.includes('fetch') &&
-                           !err.message.includes('timeout') &&
-                           !err.message.includes('certificate') &&
-                           !err.message.includes('SSL') &&
-                           !err.message.includes('TLS');
-        
-        if (shouldReport) {
-            Sentry.captureException(err, {
-                tags: { 
-                    component: 'auto-updater',
-                    platform: process.platform,
-                    version: app.getVersion(),
-                    errorType: 'updater_error'
-                },
-                extra: {
-                    environment: process.env.NODE_ENV || 'production',
-                    updateFeedUrl: autoUpdater.getFeedURL(),
-                    errorCode: err.code,
-                    errorName: err.name
-                },
-                level: 'warning' // Reduce severity for updater errors
-            });
+            }, 30000);
+        } else if (msg.includes('code signature') ||
+                   msg.includes('code failed to satisfy') ||
+                   msg.includes('validation') ||
+                   msg.includes('not signed by the application owner')) {
+            console.log('[Pairkiller] Auto-updater: Code signature validation failed. This is expected for unsigned open-source applications.');
+            if (isManualUpdateCheck) {
+                sendUpdateStatusToRenderers('App is unsigned - please download updates from GitHub releases page');
+                setTimeout(() => {
+                    if (updateWindow && !updateWindow.isDestroyed()) {
+                        updateWindow.close();
+                    }
+                    shell.openExternal('https://github.com/hybes/pairkiller/releases/latest');
+                }, 5000);
+            }
+            debug('Code signature validation error (expected for unsigned app):', msg);
+        } else if (msg.includes('EACCES') ||
+                   msg.includes('permission denied') ||
+                   msg.includes('access denied')) {
+            console.log('[Pairkiller] Auto-updater: Permission denied - app may need to be run as administrator for updates.');
+            if (isManualUpdateCheck) {
+                sendUpdateStatusToRenderers('Permission denied - try running as administrator');
+                setTimeout(() => {
+                    if (updateWindow && !updateWindow.isDestroyed()) {
+                        updateWindow.close();
+                    }
+                }, 5000);
+            }
+            debug('Permission error during update (not reporting to Sentry):', msg);
+        } else if (msg.includes('ENOSPC')) {
+            console.log('[Pairkiller] Auto-updater: Insufficient disk space for update.');
+            if (isManualUpdateCheck) {
+                sendUpdateStatusToRenderers('Insufficient disk space for update');
+                setTimeout(() => {
+                    if (updateWindow && !updateWindow.isDestroyed()) {
+                        updateWindow.close();
+                    }
+                }, 5000);
+            }
+            debug('Disk space error during update (not reporting to Sentry):', msg);
         } else {
-            debug('Network/certificate error during update (not reporting to Sentry):', err.message);
+            let feedInfo = null;
+            try {
+                feedInfo = autoUpdater.getFeedURL();
+            } catch (_) {
+            }
+            const shouldReport = !msg.includes('net::') &&
+                           !msg.includes('fetch') &&
+                           !msg.includes('timeout') &&
+                           !msg.includes('certificate') &&
+                           !msg.includes('SSL') &&
+                           !msg.includes('TLS');
+
+            if (shouldReport) {
+                Sentry.captureException(err, {
+                    tags: {
+                        component: 'auto-updater',
+                        platform: process.platform,
+                        version: app.getVersion(),
+                        errorType: 'updater_error'
+                    },
+                    extra: {
+                        environment: process.env.NODE_ENV || 'production',
+                        updateFeedUrl: feedInfo,
+                        errorCode: err.code,
+                        errorName: err.name
+                    },
+                    level: 'warning'
+                });
+            } else {
+                debug('Network/certificate error during update (not reporting to Sentry):', msg);
+            }
+
+            if (isManualUpdateCheck) {
+                sendUpdateStatusToRenderers('Error checking for updates - please try again later');
+                setTimeout(() => {
+                    if (updateWindow && !updateWindow.isDestroyed()) {
+                        updateWindow.close();
+                    }
+                }, 3000);
+            }
         }
-        
-        // Only show error message if it was a manual check
-        if (isManualUpdateCheck && updateWindow && !updateWindow.isDestroyed()) {
-            updateWindow.webContents.send('update-status', 'Error checking for updates - please try again later');
-            setTimeout(() => {
-                if (updateWindow && !updateWindow.isDestroyed()) {
-                    updateWindow.close();
-                }
-            }, 3000);
-        }
-    
-    // Reset manual check flag on any error
-    isManualUpdateCheck = false;
+    } finally {
+        isManualUpdateCheck = false;
     }
 });
 
 autoUpdater.on('download-progress', (progress) => {
     const percent = Math.round(progress.percent);
     console.log(`[Pairkiller] Download progress: ${percent}%`);
-    
-    // Temporarily pause monitoring to reduce system load during download
-    if (monitoring && percent > 10) {
-        debug('Temporarily pausing monitoring during update download');
-        if (monitoringTimeout) {
-            clearInterval(monitoringTimeout);
-            monitoringTimeout = null;
-        }
-    }
-    
-    if (updateWindow && !updateWindow.isDestroyed()) {
-        updateWindow.webContents.send('update-progress', percent);
-        updateWindow.webContents.send('update-status', `Downloading update: ${percent}%`);
-    }
+    sendUpdateProgressToRenderers(percent);
+    sendUpdateStatusToRenderers(`Downloading update: ${percent}%`);
 });
 
 autoUpdater.on('update-downloaded', (info) => {
     console.log('[Pairkiller] Update downloaded successfully:', info);
-    new Notification({
+    isUpdating = false;
+
+    const n = new Notification({
         title: 'Pairkiller Update Ready',
-        body: `Version ${info.version} has been downloaded and is ready to install. Click to restart and update.`,
+        body: `Version ${info.version} is ready. Use Install & Restart in the update window, or quit the app to finish installing.`,
         silent: false
-    }).show();
-    
-    if (updateWindow && !updateWindow.isDestroyed()) {
-        updateWindow.webContents.send('update-status', `Update v${info.version} ready to install`);
-        updateWindow.webContents.send('update-downloaded', info);
-    }
-    
-    // Auto-install after 10 seconds if user doesn't manually trigger it
-    setTimeout(() => {
-        if (updateWindow && !updateWindow.isDestroyed()) {
-            updateWindow.close();
-        }
-        autoUpdater.quitAndInstall(false, true);
-    }, 10000);
+    });
+    n.show();
+
+    sendUpdateStatusToRenderers(`Update v${info.version} ready to install`);
+    sendUpdateDownloadedToRenderers(info);
 });
 
 // Update checking - reduced frequency to prevent system slowdown
@@ -1809,17 +2004,13 @@ function scheduleUpdateCheck() {
     if (updateCheckTimer) {
         clearTimeout(updateCheckTimer);
     }
-    
-    // Check every 4 hours instead of every hour to reduce system load
     updateCheckTimer = setTimeout(() => {
-        if (process.env.NODE_ENV !== 'development') {
+        if (!isDev && !isUpdating) {
             autoUpdater.checkForUpdates().catch(error => {
-                debug('Scheduled update check failed:', error.message);
-                // Retry in 30 minutes if failed
-                setTimeout(() => scheduleUpdateCheck(), 30 * 60 * 1000);
+                debug('Scheduled update check failed:', error?.message || error);
             });
         }
-        scheduleUpdateCheck(); // Schedule next check
+        scheduleUpdateCheck();
     }, 4 * 60 * 60 * 1000);
 }
 
@@ -1828,7 +2019,7 @@ scheduleUpdateCheck();
 
 // Debug utility
 function debug(...args) {
-    if (process.env.NODE_ENV === 'development') {
+    if (isDev) {
         console.log('[DEBUG]', new Date().toISOString(), ...args);
     }
 }
@@ -1852,32 +2043,18 @@ async function initialize() {
         // Load configuration first
         await loadConfig();
         
-        // Set background mode from config
         if (isMacOS && config.ui && config.ui.backgroundMode !== undefined) {
             backgroundMode = config.ui.backgroundMode;
         }
-        
-        // Set up platform-specific UI
+
         if (isMacOS) {
-            if (backgroundMode) {
-                // Start in background mode - hide dock icon
-                if (app.dock) {
-                    app.dock.hide();
-                }
-                debug('Starting in background mode - hidden from dock');
-            } else {
-                // Show in dock and set up dock menu
-                if (app.dock) {
-                    app.dock.show();
-                }
+            applyMacOSPresentation();
+            if (!backgroundMode || isDev) {
                 setupDock();
-                debug('Starting in foreground mode - visible in dock');
             }
-            // Always set up menu bar
             setupMenuBar();
         }
-        
-        // Set up tray (primary interface on macOS in background mode)
+
         setupTray();
         
         // Start monitoring
@@ -1885,12 +2062,16 @@ async function initialize() {
         
         debug('Application initialized successfully');
         
-        // On macOS, only auto-open settings if not in background mode
         if (isMacOS && !backgroundMode && (!settingsWindow && !aboutWindow && !updateWindow)) {
             debug('No windows open on macOS (foreground mode) - opening settings window');
             setTimeout(() => openSettingsWindow(), 1000);
         }
-        
+
+        if (isDev) {
+            debug('Dev mode: opening Settings');
+            setTimeout(() => openSettingsWindow(), 500);
+        }
+
     } catch (error) {
         console.error('Failed to initialize application:', error);
         Sentry.captureException(error);
@@ -1901,7 +2082,7 @@ async function initialize() {
 app.whenReady().then(initialize);
 
 app.on('browser-window-created', (e, window) => {
-    if (process.env.NODE_ENV !== 'development') {
+    if (!isDev) {
         window.webContents.on('devtools-opened', () => {
             window.webContents.closeDevTools();
         });
@@ -1911,9 +2092,10 @@ app.on('browser-window-created', (e, window) => {
 // Handle window closing behavior - different for each platform
 app.on('window-all-closed', (e) => {
     if (isMacOS) {
-        // On macOS, keep the app running when all windows are closed
-        // This is standard macOS behavior
         debug('All windows closed on macOS - keeping app running');
+        if (!isDev) {
+            applyMacOSPresentation();
+        }
     } else {
         // On Windows/Linux, prevent closing to keep running in system tray
         e.preventDefault();
@@ -1921,11 +2103,9 @@ app.on('window-all-closed', (e) => {
     }
 });
 
-// Handle macOS dock icon clicks (only when visible)
 app.on('activate', () => {
-    if (isMacOS && !backgroundMode) {
-        // This is called when the dock icon is clicked on macOS
-        debug('App activated (dock icon clicked) - opening settings window');
+    if (isMacOS && (!backgroundMode || isDev)) {
+        debug('App activated - opening settings window');
         openSettingsWindow();
     }
 });
@@ -1966,7 +2146,7 @@ process.on('SIGTERM', async () => {
 
 // Initial update check - delayed to prevent startup slowdown
 setTimeout(() => {
-    if (process.env.NODE_ENV !== 'development') {
+    if (!isDev) {
         autoUpdater.checkForUpdatesAndNotify().catch(error => {
             debug('Initial update check failed:', error.message);
         });
@@ -2094,9 +2274,8 @@ ipcMain.on('check-for-updates', () => {
     isManualUpdateCheck = true;
     autoUpdater.checkForUpdatesAndNotify().catch(err => {
         console.error('Manual update check failed:', err);
-        if (updateWindow && !updateWindow.isDestroyed()) {
-            updateWindow.webContents.send('update-status', 'Failed to check for updates');
-        }
+        isManualUpdateCheck = false;
+        sendUpdateStatusToRenderers('Failed to check for updates');
     });
 });
 
@@ -2109,9 +2288,7 @@ ipcMain.on('install-update', async () => {
         await createConfigBackup();
         
         // Notify user of installation
-        if (updateWindow && !updateWindow.isDestroyed()) {
-            updateWindow.webContents.send('update-status', 'Preparing for installation...');
-        }
+        sendUpdateStatusToRenderers('Preparing for installation...');
         
         // Stop all monitoring and cleanup to prevent system conflicts
         if (monitoring) {
@@ -2128,9 +2305,7 @@ ipcMain.on('install-update', async () => {
         // Small delay to ensure cleanup is complete
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        if (updateWindow && !updateWindow.isDestroyed()) {
-            updateWindow.webContents.send('update-status', 'Installing update...');
-        }
+        sendUpdateStatusToRenderers('Installing update...');
         
         // Install the update with silent restart
         autoUpdater.quitAndInstall(true, true);
@@ -2143,9 +2318,7 @@ ipcMain.on('install-update', async () => {
             tags: { component: 'update-installation' }
         });
         
-        if (updateWindow && !updateWindow.isDestroyed()) {
-            updateWindow.webContents.send('update-status', 'Error preparing update - please try again');
-        }
+        sendUpdateStatusToRenderers('Error preparing update - please try again');
         
         // Restart monitoring if update failed
         if (config.monitoring.enabled) {
@@ -2157,6 +2330,10 @@ ipcMain.on('install-update', async () => {
 // Create config backup before major updates
 async function createConfigBackup() {
     try {
+        if (!fsSync.existsSync(configPath)) {
+            debug('Skipping config backup — no config file yet');
+            return;
+        }
         const backupPath = `${configPath}.backup.${Date.now()}`;
         await fs.copyFile(configPath, backupPath);
         debug(`Config backup created at: ${backupPath}`);

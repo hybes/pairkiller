@@ -7,68 +7,98 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g., 5.0.1)'
+        description: 'Release version (must match package.json "version", with v prefix in tag e.g. 6.0.0)'
         required: true
-        default: '5.0.1'
+        default: '6.0.0'
 
 permissions:
   contents: write
   actions: read
 
 jobs:
-  release:
-    runs-on: windows-latest
-    # Ensure only one release workflow runs at a time
-    concurrency:
-      group: release-${{ github.ref }}
-      cancel-in-progress: false
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-        cache: 'npm'
-        
-    - name: Install dependencies
-      run: npm ci
-      
-    - name: Build icons
-      run: npm run build:icons
-      
-    - name: Build application
-      run: npm run build
-      
-    - name: Create Release (Tag Push)
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          dist/Pairkiller-Setup-*.exe
-          dist/Pairkiller-*.exe
-          dist/*.blockmap
-          dist/latest.yml
-        draft: false
-        prerelease: false
-        generate_release_notes: true
-        token: ${{ secrets.GITHUB_TOKEN }}
-        
-    - name: Create Release (Manual)
-      if: github.event_name == 'workflow_dispatch'
-      uses: softprops/action-gh-release@v1
-      with:
-        tag_name: v${{ github.event.inputs.version }}
-        name: Release v${{ github.event.inputs.version }}
-        files: |
-          dist/Pairkiller-Setup-*.exe
-          dist/Pairkiller-*.exe
-          dist/*.blockmap
-          dist/latest.yml
-        draft: false
-        prerelease: false
-        generate_release_notes: true
-        token: ${{ secrets.GITHUB_TOKEN }}
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact: dist-macos
+            build_cmd: bun run build:mac
+          - os: windows-latest
+            artifact: dist-windows
+            build_cmd: bun run build:win
 
+    runs-on: ${{ matrix.os }}
+    concurrency:
+      group: release-build-${{ matrix.os }}-${{ github.ref }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build icons
+        run: bun run build:icons
+
+      - name: Build (${{ matrix.os }})
+        run: ${{ matrix.build_cmd }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: ${{ always() && needs.build.result == 'success' }}
+
+    steps:
+      - name: Download macOS artefacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-macos
+          path: upload
+
+      - name: Download Windows artefacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-windows
+          path: upload
+
+      - name: List release files
+        run: ls -la upload
+
+      - name: Create GitHub Release (tag push)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: upload/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release (manual)
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.event.inputs.version }}
+          name: Release v${{ github.event.inputs.version }}
+          files: upload/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          token: ${{ secrets.GITHUB_TOKEN }}
