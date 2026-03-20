@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file. See [standa
 
 ### [6.0.3](https://github.com/hybes/pairkiller/compare/v6.0.2...v6.0.3) (2026-03-20)
 
+- **Windows**: NSIS cleanup only removes legacy folders when **`Pairkiller.exe`** is at that folder root (avoids deleting `%APPDATA%\pairkiller` user data); migrates away from previous **`InstallPath`** in registry when upgrading.
+- **Windows**: **`app.setAppUserModelId('com.pairkiller.app')`** for proper taskbar / shell behaviour.
+- **Windows**: Releases ship **NSIS Setup only** (portable artefact removed); installer wizard uses **header / uninstaller icons** from `build/icons/icon.png`.
+
 ### [6.0.2](https://github.com/hybes/pairkiller/compare/v6.0.1...v6.0.2) (2026-03-20)
 
 ### [6.0.1](https://github.com/hybes/pairkiller/compare/v6.0.0...v6.0.1) (2026-03-20)

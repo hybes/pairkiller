@@ -3,12 +3,16 @@ const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs').promises;
 const fsSync = require('fs');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 const util = require('util');
 const Sentry = require('@sentry/electron/main');
 require('dotenv').config();
 
 const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev');
+
+if (process.platform === 'win32') {
+    app.setAppUserModelId('com.pairkiller.app');
+}
 
 if (!app.requestSingleInstanceLock()) {
     app.quit();
@@ -1720,8 +1724,58 @@ ipcMain.handle('set-background-mode', async (event, nextBackgroundMode) => {
     return { success: true, backgroundMode };
 });
 
-// Auto-start management handlers
-ipcMain.handle('get-auto-start', () => {
+const WINDOWS_RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
+const WINDOWS_RUN_VALUE_NAME = 'Pairkiller';
+
+function getWindowsRegExe() {
+    const windir = process.env.windir || process.env.SystemRoot || 'C:\\Windows';
+    return path.join(windir, 'System32', 'reg.exe');
+}
+
+function runRegArgs(args) {
+    return new Promise((resolve, reject) => {
+        execFile(getWindowsRegExe(), args, { windowsHide: true, encoding: 'utf8' }, (err, stdout, stderr) => {
+            if (err) {
+                err.stderr = stderr;
+                err.stdout = stdout;
+                reject(err);
+                return;
+            }
+            resolve();
+        });
+    });
+}
+
+async function getWindowsAutoStartEnabled() {
+    try {
+        await runRegArgs(['QUERY', WINDOWS_RUN_KEY, '/v', WINDOWS_RUN_VALUE_NAME]);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+async function setWindowsRunAutoStart(enabled) {
+    if (enabled) {
+        const data = `"${process.execPath}" --startup`;
+        await runRegArgs(['ADD', WINDOWS_RUN_KEY, '/v', WINDOWS_RUN_VALUE_NAME, '/t', 'REG_SZ', '/d', data, '/f']);
+        return;
+    }
+    try {
+        await runRegArgs(['DELETE', WINDOWS_RUN_KEY, '/v', WINDOWS_RUN_VALUE_NAME, '/f']);
+    } catch (err) {
+        const stderr = err && err.stderr ? String(err.stderr) : '';
+        if (err.code === 1 && /unable to find/i.test(stderr)) {
+            return;
+        }
+        throw err;
+    }
+}
+
+ipcMain.handle('get-auto-start', async () => {
+    if (isWindows) {
+        return await getWindowsAutoStartEnabled();
+    }
     const settings = app.getLoginItemSettings();
     return settings.openAtLogin;
 });
@@ -1729,28 +1783,7 @@ ipcMain.handle('get-auto-start', () => {
 ipcMain.handle('set-auto-start', async (event, enabled) => {
     try {
         if (isWindows) {
-            // On Windows, use registry for more reliable auto-start
-            const Registry = require('winreg');
-            const regKey = new Registry({
-                hive: Registry.HKCU,
-                key: '\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
-            });
-            
-            if (enabled) {
-                await new Promise((resolve, reject) => {
-                    regKey.set('Pairkiller', Registry.REG_SZ, `"${process.execPath}" --startup`, (err) => {
-                        if (err) reject(err);
-                        else resolve();
-                    });
-                });
-            } else {
-                await new Promise((resolve, reject) => {
-                    regKey.remove('Pairkiller', (err) => {
-                        if (err && err.code !== 'ENOENT') reject(err);
-                        else resolve();
-                    });
-                });
-            }
+            await setWindowsRunAutoStart(enabled);
         } else {
             // For macOS and Linux, use Electron's built-in method
             app.setLoginItemSettings({

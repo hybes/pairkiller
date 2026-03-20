@@ -68,12 +68,6 @@
             "x64",
             "ia32"
           ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
         }
       ],
       "icon": "icon.png",
@@ -171,6 +165,8 @@
       "deleteAppDataOnUninstall": false,
       "uninstallDisplayName": "Pairkiller ${version}",
       "artifactName": "${productName}-Setup-${version}.${ext}",
+      "installerHeaderIcon": "build/icons/icon.png",
+      "uninstallerIcon": "build/icons/icon.png",
       "runAfterFinish": true,
       "packElevateHelper": false,
       "displayLanguageSelector": false,
@@ -229,8 +225,7 @@
     "@sentry/electron": "^7.10.0",
     "dotenv": "^17.3.1",
     "electron-context-menu": "^4.1.2",
-    "electron-updater": "^6.8.3",
-    "winreg": "^1.2.5"
+    "electron-updater": "^6.8.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

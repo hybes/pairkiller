@@ -51,16 +51,18 @@ A modern, intelligent app monitoring and control system that automatically manag
 ### Download
 Get the latest release from [GitHub Releases](https://github.com/hybes/pairkiller/releases). Names follow the version tag, for example:
 
-- **Windows**: `Pairkiller-Setup-<version>.exe` (and optional portable `.exe`)
+- **Windows**: `Pairkiller-Setup-<version>.exe` (NSIS installer — use this for Start Menu, uninstaller, and in-app updates)
 - **macOS**: `Pairkiller-<version>-<arch>.dmg` or `.zip` (Intel & Apple Silicon)
 - **Linux**: `.AppImage`, `.deb`, or `.tar.gz` for x64
 
 ### Platform-specific installation
 
 #### Windows
-1. Download the latest **Setup** executable from Releases.
-2. Run the installer and follow the wizard (per-user install under `%LOCALAPPDATA%` by default).
-3. The app can start automatically and lives in the system tray.
+1. Download **`Pairkiller-Setup-<version>.exe`** from [Releases](https://github.com/hybes/pairkiller/releases) (run the Setup wizard rather than a loose download-only `.exe`).
+2. Install to the default location: **`%LOCALAPPDATA%\Programs\Pairkiller`** (per-user, no admin required).
+3. You get **Desktop** and **Start Menu** shortcuts, a proper entry in **Settings → Apps → Installed apps**, and matching **taskbar** grouping.
+4. Allow **Launch Pairkiller** at the end of the wizard if you want; auto-start at sign-in is still controlled from **Settings** inside the app.
+5. The app runs from the system tray after install.
 
 #### macOS
 1. Download the **DMG** (or **ZIP**) for your architecture.
@@ -175,7 +177,7 @@ On a **version bump** push to `main`, it builds Mac + Windows and **[creates the
 
 **Manual run:** **Actions** → **Release** → **Run workflow**; the version you enter must match `package.json` on `main`.
 
-**Auto-update (Windows):** the published release should include **`latest.yml`** and **`.exe.blockmap`** (uploaded by this workflow).
+**Auto-update (Windows):** the published release should include **`latest.yml`** and the **NSIS** **`.exe.blockmap`** files (uploaded by this workflow). Installed users update in place; the portable build is no longer shipped.
 
 Local one-off builds:
 
@@ -245,12 +247,13 @@ bun run dev
 
 ### Windows install & uninstall
 
-- **NSIS installer**: per-user install under `%LOCALAPPDATA%\\Programs\\Pairkiller` by default; shortcuts and uninstall entry are managed by the installer.
-- **Auto-start** is configured from **Settings** in the app, not forced by the installer, so reinstalls do not override your preference.
-- **Uninstall** removes the app, shortcuts, and registry entries created by the app; your config under `%APPDATA%\\Pairkiller` (or the platform equivalent) is kept so you can reinstall without losing groups unless you delete that folder yourself.
+- **Installer**: NSIS **Setup** installs to **`%LOCALAPPDATA%\Programs\Pairkiller`**, creates shortcuts, and registers the app for **Apps & Features** (same fixed upgrade **GUID** across versions).
+- **Legacy folders**: On install, the wizard only removes **other** folders that look like old installs (**`Pairkiller.exe` at the folder root**, e.g. a mistaken copy under Roaming or `Program Files`). Your normal **settings folder** is only data files (no `.exe` there) and is **not** deleted by the installer.
+- **Auto-start** is set from **Settings** in the app; the installer does not force a Run key.
+- **Uninstall**: **Settings → Apps** (or **Add or remove programs**) → **Pairkiller** → **Uninstall**. That removes program files and shortcuts; **`deleteAppDataOnUninstall`** is off, so your profile under **`%APPDATA%\pairkiller`** (Electron `userData` for this package name) is kept unless you remove it yourself.
 
 ### Logs
-- **Windows**: `%APPDATA%/Pairkiller/logs/`
+- **Windows**: config and app data under **`%APPDATA%\pairkiller`**
 - **macOS**: `~/Library/Logs/Pairkiller/`
 - **Linux**: `~/.config/Pairkiller/logs/`
 

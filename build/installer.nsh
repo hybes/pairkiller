@@ -2,69 +2,65 @@
 
 !macro preInit
   SetRegView 64
-  ; Force user-local installation directory
   StrCpy $INSTDIR "$LOCALAPPDATA\Programs\${PRODUCT_NAME}"
   SetShellVarContext current
 !macroend
 
 !macro customInit
-  ; Kill any running instances before installation
   DetailPrint "Stopping Pairkiller processes..."
   nsExec::ExecToLog 'taskkill /F /IM "Pairkiller.exe" /T'
   Sleep 1000
-  
-  ; Clean up old installations from other locations
+
   Call CleanupOldInstallations
 !macroend
 
 !macro customInstall
   SetShellVarContext current
-  
+
+  ReadRegStr $R8 HKCU "Software\Pairkiller" "InstallPath"
+
   DetailPrint "=== Pairkiller Post-Installation Setup ==="
   DetailPrint "Installation directory: $INSTDIR"
-  
-  ; Create registry entries
+
   WriteRegStr HKCU "Software\Pairkiller" "InstallPath" "$INSTDIR"
   WriteRegStr HKCU "Software\Pairkiller" "Version" "${VERSION}"
   WriteRegStr HKCU "Software\Pairkiller" "InstallDate" "$$(Date)"
-  
-  ; Auto-start is controlled from inside the app (Settings) so upgrades respect user choice
-  
-  ; Verify installation
+
   IfFileExists "$INSTDIR\${PRODUCT_NAME}.exe" InstallSuccess InstallFailed
-  
+
   InstallSuccess:
-    DetailPrint "✓ Installation completed successfully!"
-    DetailPrint "✓ Files installed to: $INSTDIR"
+    DetailPrint "Installation completed successfully."
+    DetailPrint "Files installed to: $INSTDIR"
+    StrCmp $R8 "" SkipPrevDir
+    StrCmp $R8 $INSTDIR SkipPrevDir
+    IfFileExists "$R8\${PRODUCT_NAME}.exe" 0 SkipPrevDir
+    DetailPrint "Removing previous install directory: $R8"
+    RMDir /r "$R8"
+    SkipPrevDir:
     Goto InstallEnd
-    
+
   InstallFailed:
-    DetailPrint "✗ Installation verification failed!"
+    DetailPrint "Installation verification failed."
     MessageBox MB_ICONSTOP "Installation failed. Main executable not found at $INSTDIR\${PRODUCT_NAME}.exe"
-    
+
   InstallEnd:
 !macroend
 
 !macro customUnInstall
-  DetailPrint "=== Pairkiller Uninstallation Started ==="
-  
-  ; Kill running processes (ignore exit code if not running)
+  DetailPrint "Pairkiller uninstallation started."
+
   nsExec::ExecToLog 'taskkill /F /IM "Pairkiller.exe" /T'
   Sleep 1500
-  
-  ; Remove any legacy startup entry (app may have added this when auto-start was enabled)
+
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Pairkiller"
-  
-  ; Remove registry entries
   DeleteRegKey HKCU "Software\Pairkiller"
-  
-  ; Remove shortcuts
+
   Delete "$DESKTOP\${PRODUCT_NAME}.lnk"
   Delete "$DESKTOP\Pairkiller.lnk"
   RMDir /r "$SMPROGRAMS\${PRODUCT_NAME}"
   RMDir /r "$SMPROGRAMS\Pairkiller"
-  
-  DetailPrint "✓ Uninstallation completed successfully!"
+
+  DetailPrint "Uninstallation cleanup completed."
 !macroend
 
 !macro customInstallMode
@@ -73,35 +69,37 @@
   SetShellVarContext current
 !macroend
 
-; Function to clean up old installations from other locations
+Function RemoveIfLegacyExeRoot
+  Pop $R0
+  StrCmp $R0 "" done
+  StrCmp $R0 $INSTDIR done
+  IfFileExists "$R0\${PRODUCT_NAME}.exe" 0 done
+  DetailPrint "Removing legacy install (executable at root): $R0"
+  RMDir /r "$R0"
+done:
+FunctionEnd
+
 Function CleanupOldInstallations
-  DetailPrint "Cleaning up old installations..."
-  
-  ; Clean up old locations (but not current install dir)
-  StrCmp "$INSTDIR" "$APPDATA\Pairkiller" SkipAppData 0
-    IfFileExists "$APPDATA\Pairkiller\*.*" 0 SkipAppData
-      DetailPrint "Removing old installation: $APPDATA\Pairkiller"
-      RMDir /r "$APPDATA\Pairkiller"
-  SkipAppData:
-  
-  StrCmp "$INSTDIR" "$PROGRAMFILES\Pairkiller" SkipPF 0
-    IfFileExists "$PROGRAMFILES\Pairkiller\*.*" 0 SkipPF
-      DetailPrint "Removing old installation: $PROGRAMFILES\Pairkiller"
-      RMDir /r "$PROGRAMFILES\Pairkiller"
-  SkipPF:
-  
-  StrCmp "$INSTDIR" "$PROGRAMFILES(X86)\Pairkiller" SkipPF86 0
-    IfFileExists "$PROGRAMFILES(X86)\Pairkiller\*.*" 0 SkipPF86
-      DetailPrint "Removing old installation: $PROGRAMFILES(X86)\Pairkiller"
-      RMDir /r "$PROGRAMFILES(X86)\Pairkiller"
-  SkipPF86:
-  
-  ; Clean up orphaned registry entries
+  DetailPrint "Scanning for legacy install folders (only removed if ${PRODUCT_NAME}.exe is at folder root)."
+
+  Push "$LOCALAPPDATA\${PRODUCT_NAME}"
+  Call RemoveIfLegacyExeRoot
+
+  Push "$PROGRAMFILES\${PRODUCT_NAME}"
+  Call RemoveIfLegacyExeRoot
+
+  ReadEnvStr $R7 "ProgramFiles(x86)"
+  StrCmp $R7 "" +4
+  Push "$R7\${PRODUCT_NAME}"
+  Call RemoveIfLegacyExeRoot
+
+  Push "$APPDATA\${PRODUCT_NAME}"
+  Call RemoveIfLegacyExeRoot
+
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Pairkiller"
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Pairkiller"
-  
-  ; Clean old auto-start entries
+
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Pairkiller"
-  
-  DetailPrint "✓ Cleanup completed"
+
+  DetailPrint "Legacy cleanup pass completed."
 FunctionEnd
