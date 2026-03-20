@@ -2,6 +2,8 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [6.0.4](https://github.com/hybes/pairkiller/compare/v6.0.3...v6.0.4) (2026-03-20)
+
 ### [6.0.3](https://github.com/hybes/pairkiller/compare/v6.0.2...v6.0.3) (2026-03-20)
 
 - **Windows**: NSIS cleanup only removes legacy folders when **`Pairkiller.exe`** is at that folder root (avoids deleting `%APPDATA%\pairkiller` user data); migrates away from previous **`InstallPath`** in registry when upgrading.
