@@ -1,6 +1,18 @@
 # Changelog
 
-All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
+All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
+
+## [7.0.0](https://github.com/hybes/pairkiller/compare/v6.0.5...v7.0.0) (2026-10-13)
+
+### ⚠ BREAKING CHANGES
+
+* Electron 44 supports 64-bit Windows and macOS 13 or
+  later only, so 6.0.5 is the last release for 32-bit Windows and for
+  macOS 12 and earlier.
+
+### Features
+
+* native redesign, rewritten rule engine and dependency upgrades ([3686c16](https://github.com/hybes/pairkiller/commit/3686c166a8c23fbbd3ea15839397cfc7dd63dc13))
 
 ### [6.0.5](https://github.com/hybes/pairkiller/compare/v6.0.3...v6.0.5) (2026-03-20)
 
