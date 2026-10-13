@@ -3,30 +3,27 @@
   "productName": "Pairkiller",
   "version": "6.0.5",
   "description": "A modern, flexible app monitoring and control system with enhanced UI and performance",
-  "main": "main.js",
-  "packageManager": "bun@1.3.11",
+  "main": "src/main/index.js",
+  "packageManager": "bun@1.4.0",
   "scripts": {
     "start": "electron .",
-    "dev": "concurrently \"bun run watch:css\" \"electron . --dev\"",
-    "build": "bun run build:css && bunx electron-builder --publish never",
-    "build:all": "bun run build:css && bunx electron-builder --mac --win --linux --publish never",
-    "build:mac": "bun run build:css && bunx electron-builder --mac --publish never",
-    "build:win": "bun run build:css && bunx electron-builder --win --publish never",
-    "build:linux": "bun run build:css && bunx electron-builder --linux --publish never",
-    "watch:css": "bunx @tailwindcss/cli -i ./styles.css -o ./output.css --watch",
-    "build:css": "bunx @tailwindcss/cli -i ./styles.css -o ./output.css --minify",
+    "dev": "electron . --dev",
+    "build": "bunx electron-builder --publish never",
+    "build:all": "bunx electron-builder --mac --win --linux --publish never",
+    "build:mac": "bunx electron-builder --mac --publish never",
+    "build:win": "bunx electron-builder --win --publish never",
+    "build:linux": "bunx electron-builder --linux --publish never",
     "build:icons": "bun run build:icons:setup",
     "build:icons:setup": "bun scripts/copy-icon.js",
     "build:icons:create": "echo ImageMagick not available - using PNG icon for all formats",
-    "bump": "bunx standard-version --skip.tag",
+    "bump": "bunx commit-and-tag-version --skip.tag",
     "version:patch": "npm version patch --no-git-tag-version",
     "version:minor": "npm version minor --no-git-tag-version",
     "version:major": "npm version major --no-git-tag-version",
-    "dist": "bun run build:css && bunx electron-builder --publish never",
-    "pack": "bun run build:css && bunx electron-builder --dir --publish never",
+    "dist": "bunx electron-builder --publish never",
+    "pack": "bunx electron-builder --dir --publish never",
     "lint": "eslint .",
-    "test": "bun test-migration.js",
-    "test:migration": "bun test-migration.js",
+    "test": "bun test/run.js",
     "release": "bun run build:icons && bun run build:all"
   },
   "build": {
@@ -37,18 +34,14 @@
       "buildResources": "build"
     },
     "files": [
-      "main.js",
-      "preload.js",
-      "settings.html",
-      "settings.js",
-      "about.html",
-      "about.js",
-      "update.html",
-      "update.js",
-      "output.css",
+      "src/**/*",
       "icon.png",
       "trayTemplate.png",
-      "package.json"
+      "package.json",
+      "!node_modules/koffi/{src,vendor,doc,lib}/**",
+      "!node_modules/koffi/build/koffi/{darwin,freebsd,linux,musl,openbsd}_*/**",
+      "!node_modules/koffi/build/koffi/win32_ia32/**",
+      "!node_modules/koffi/build/koffi/**/*.{exp,lib}"
     ],
     "extraResources": [
       {
@@ -65,8 +58,7 @@
         {
           "target": "nsis",
           "arch": [
-            "x64",
-            "ia32"
+            "x64"
           ]
         }
       ],
@@ -96,7 +88,7 @@
       ],
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "darkModeSupport": true,
-      "minimumSystemVersion": "10.14.0",
+      "minimumSystemVersion": "13.0",
       "hardenedRuntime": false,
       "gatekeeperAssess": false
     },
@@ -193,8 +185,7 @@
       }
     ],
     "compression": "maximum",
-    "npmRebuild": false,
-    "beforeBuild": "bun run build:css"
+    "npmRebuild": false
   },
   "keywords": [
     "electron",
@@ -220,21 +211,17 @@
   },
   "homepage": "https://github.com/hybes/pairkiller#readme",
   "dependencies": {
-    "@sentry/electron": "^7.10.0",
-    "dotenv": "^17.3.1",
-    "electron-context-menu": "^4.1.2",
-    "electron-updater": "^6.8.3"
+    "@sentry/electron": "^8.2.0",
+    "electron-updater": "^6.8.9",
+    "koffi": "^2.16.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@tailwindcss/cli": "^4.2.2",
-    "concurrently": "^9.2.1",
-    "electron": "^41.0.3",
-    "electron-builder": "^26.8.1",
-    "eslint": "^10.0.3",
-    "globals": "^17.4.0",
-    "standard-version": "^9.5.0",
-    "tailwindcss": "^4.2.2"
+    "commit-and-tag-version": "^13.2.2",
+    "electron": "^44.7.1",
+    "electron-builder": "^26.15.3",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0"
   },
   "engines": {
     "bun": ">=1.0.0"

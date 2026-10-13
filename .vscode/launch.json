@@ -6,9 +6,8 @@
           "request": "launch",
           "name": "Launch Electron",
           "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
-          "program": "${workspaceFolder}/main.js",
           "stopOnEntry": false,
-          "args": [],
+          "args": ["."],
           "cwd": "${workspaceFolder}",
           "preLaunchTask": "npm: start",
           "runtimeArgs": [

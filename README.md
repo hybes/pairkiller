@@ -6,45 +6,28 @@ A modern, intelligent app monitoring and control system that automatically manag
 
 ## ✨ Features
 
-### 🎯 Smart Monitoring
-- **Cross-Platform**: Works on Windows, macOS, and Linux
-- **Real-time Process Detection**: Monitors running applications with optimized performance
-- **Flexible Conditions**: Set rules based on "any" or "all" monitored apps running
-- **Process Caching**: Efficient monitoring with intelligent caching to reduce system load
+### 🎯 Rules
+- **Pair apps together**: a rule watches one or more apps and opens or closes companion apps alongside them
+- **Four behaviours per app**: open and close with it, open with it, close while it runs, or close while it runs and reopen after
+- **Any or all**: a rule can be active when any watched app is running, or only when all of them are
+- **Templates**: League of Legends + Blitz, Rocket League + BakkesMod (Windows), and starting points for Valorant, Fortnite, Minecraft, Steam, OBS and Discord
+- **Pick from what's running**: add apps from a list of running apps with their real icons, or browse for them
 
-### 🎮 Gaming Focus
-- **Pre-built Presets**: Ready-to-use configurations for popular gaming setups
-  - League of Legends + Blitz (Windows & macOS)
-  - Rocket League + BakkesMod (Windows) / Rocket League Monitor (macOS)
-  - Steam Games monitoring (All platforms)
-  - Discord Gaming monitor (All platforms)
-- **Custom Groups**: Create your own monitoring groups for any applications
+### 🖥️ Feels at home on each platform
+- **Windows 11**: Mica window, Fluent controls, your system accent colour, light and dark mode
+- **macOS**: sidebar vibrancy, grouped settings lists, native menus and dialogs, menu bar extra
+- **No Save button**: changes apply as you make them, the way system settings do
+- **Live status**: see which rules are active and which apps are running, plus an activity history of everything Pairkiller opened or closed
 
-### 🚀 Enhanced Performance
-- **Parallel Processing**: Concurrent app monitoring and control for better performance
-- **Resource Optimization**: Minimal system impact with smart resource management
-- **Error Recovery**: Robust error handling and automatic recovery mechanisms
-- **Platform-Optimized**: Uses native commands for each operating system
+### 🚀 Light and reliable
+- **Negligible overhead**: on Windows the process list is read straight from the system (about 10 ms per check) instead of spawning `tasklist`
+- **Never acts on missing data**: if the process list can't be read, the check is skipped rather than treated as "nothing is running"
+- **Forgiving of restarts**: a watched app has to be gone for a few seconds before its rule switches off, so a client that restarts itself doesn't bounce your companion app
+- **Respects you**: an app you close by hand stays closed until the next time its rule activates
 
-### 🎨 Modern UI/UX
-- **Beautiful Interface**: Clean, modern design with smooth animations
-- **Dark Theme**: Eye-friendly dark theme throughout the application
-- **Responsive Design**: Adapts to different screen sizes and resolutions
-- **Interactive Elements**: Tooltips, confirmations, and visual feedback
-
-### 🔧 Advanced Configuration
-- **Flexible Actions**: Start, stop, sync, or run opposite to monitored apps
-- **Path Detection**: Automatic executable path detection with file browser
-- **Cross-Platform Apps**: Supports .exe files on Windows, .app bundles on macOS
-- **Validation**: Real-time configuration validation with helpful error messages
-- **Backup & Recovery**: Safe configuration management with atomic saves
-
-### 🔄 Seamless Updates
-- **Automatic Configuration Migration**: Your settings are automatically migrated when updating from any previous version
-- **Safe Update Process**: Configuration backups are created before updates
-- **Backward Compatibility**: Supports configuration formats from v1.0.0+ 
-- **Update Verification**: Built-in tests ensure migrations work correctly
-- **Recovery System**: Automatic backup restoration if configuration becomes corrupted
+### 🔄 Updates
+- **Automatic configuration upgrade** from every earlier version
+- **Background updates** from GitHub Releases, installed when you restart
 
 ## 📥 Installation
 
@@ -54,6 +37,8 @@ Get the latest release from [GitHub Releases](https://github.com/hybes/pairkille
 - **Windows**: `Pairkiller-Setup-<version>.exe` (NSIS installer — use this for Start Menu, uninstaller, and in-app updates)
 - **macOS**: `Pairkiller-<version>-<arch>.dmg` or `.zip` (Intel & Apple Silicon)
 - **Linux**: `.AppImage`, `.deb`, or `.tar.gz` for x64
+
+Requires 64-bit Windows 10 or later, or macOS 13 (Ventura) or later. Version 6.0.5 is the last release for 32-bit Windows and for macOS 12 and earlier.
 
 ### Platform-specific installation
 
@@ -74,10 +59,9 @@ Get the latest release from [GitHub Releases](https://github.com/hybes/pairkille
 2. AppImage example: `chmod +x Pairkiller-*.AppImage` then `./Pairkiller-*.AppImage`
 
 ### Quick Start
-1. Launch the application (it will start in the system tray)
-2. Right-click the tray icon and select "Settings"
-3. Choose a preset or create your own app group
-4. Save and let Pairkiller manage your apps automatically!
+1. Launch Pairkiller. Its window opens, and it keeps running in the system tray (Windows) or menu bar (macOS) after you close it
+2. Choose **New rule** and pick a template, or start with a blank rule
+3. Add the app to watch and the app to control. Changes apply immediately
 
 ## 🎮 Usage Examples
 
@@ -89,7 +73,7 @@ Monitor when League of Legends is running and automatically start/stop Blitz acc
 - **Controlled Apps:** `Blitz.exe` (Start/Stop with League)
 
 **macOS:**
-- **Monitored Apps:** `League of Legends`, `LeagueClient`
+- **Monitored Apps:** `League of Legends` (covers both the client and the game, which live inside the same app)
 - **Controlled Apps:** `Blitz` (Start/Stop with League)
 
 ### Rocket League + BakkesMod
@@ -113,14 +97,14 @@ Works on all platforms to monitor Steam and manage gaming apps.
 ## ⚙️ Platform Differences
 
 ### Process Detection
-- **Windows**: Uses `tasklist` for process detection
-- **macOS**: Uses `pgrep` and `ps` with fallback to AppleScript for .app bundles
-- **Linux**: Uses `pgrep` and `ps` for process detection
+- **Windows**: reads the process table directly through the Windows API; falls back to `tasklist` if that is unavailable
+- **macOS**: uses `ps`. An app is matched by its executable name or by the name of any `.app` bundle it runs inside
+- **Linux**: reads `/proc`
 
-### App Launching
-- **Windows**: Direct executable launching
-- **macOS**: Uses `open` command for .app bundles, direct execution for binaries
-- **Linux**: Background process launching with `&`
+### App Launching and Closing
+- **Windows**: opened through the shell, the same as double-clicking; closed with `taskkill /F`
+- **macOS**: `.app` bundles are opened through Launch Services; apps are asked to quit first and forced only if they don't
+- **Linux**: launched as a detached process; closed with `SIGTERM`, then `SIGKILL`
 
 ### File Types
 - **Windows**: Supports `.exe`, `.bat`, `.cmd` files
@@ -140,11 +124,24 @@ cd pairkiller
 
 bun install
 
-bun run build:css
-bun run dev
+bun run dev      # run the app
+bun run test     # unit tests for the rule engine, config and process parsing
+bun run lint
 ```
 
-On **macOS**, packaged installs often use **menu-bar / tray-only** mode (no dock icon). **`bun run dev`** now forces the **Dock** visible and **opens Settings** automatically so you are not staring at an empty desktop. For a normal install, use the **tray icon** (top-right menu bar) → **Settings**.
+There is no build step for the interface: `src/renderer` is plain HTML, CSS and JavaScript.
+
+On **macOS**, packaged installs often use **menu-bar only** mode (no Dock icon). A development run always shows the Dock icon and opens the window.
+
+Development runs understand a few environment variables:
+
+| Variable | Effect |
+| --- | --- |
+| `PAIRKILLER_USER_DATA=<dir>` | Use a separate profile, so a development copy can run next to the installed app |
+| `PAIRKILLER_DRY_RUN=1` | Evaluate rules and log what would happen, without opening or closing anything |
+| `PAIRKILLER_UI_PLATFORM=darwin|win32` | Preview the other platform's look |
+
+`bunx electron scripts/dev-screenshots.js <output-dir> [win32|darwin] [empty]` renders every screen to PNG, in light and dark, without showing a window.
 
 ### Building for distribution
 
@@ -170,7 +167,7 @@ bun run release         # Icons + all platforms
 
 On a **version bump** push to `main`, it builds Mac + Windows and **[creates the GitHub Release and the `v…` tag](https://github.com/softprops/action-gh-release)** in the same run (no separate tag workflow). That avoids a GitHub limitation where a tag pushed with **`GITHUB_TOKEN`** does **not** start another workflow.
 
-1. Bump **`version`**: **`nr version:patch`**, **`nr version:minor`**, or **`nr version:major`** (no local git tag — CI creates **`v…`**), or **`nr bump`** for [standard-version](https://github.com/conventional-changelog/standard-version) and the changelog. Commit and push **`main`**.
+1. Bump **`version`**: **`nr version:patch`**, **`nr version:minor`**, or **`nr version:major`** (no local git tag — CI creates **`v…`**), or **`nr bump`** for [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) and the changelog. Commit and push **`main`**.
 2. Open **Actions** → **Release** and wait for **gate** → **build** → **publish**.
 
 **Manual tag:** `git tag v6.0.1 && git push origin v6.0.1` still triggers **Release** (tag push path).
@@ -189,10 +186,10 @@ bun run build:icons && bun run build:win   # on Windows → check dist/
 ### Platform-Specific Development
 
 #### Windows Development
-Requires Windows 10+ for full functionality testing.
+Requires 64-bit Windows 10 or later.
 
 #### macOS Development
-Requires macOS 10.14+ and Xcode Command Line Tools:
+Requires macOS 13+ and Xcode Command Line Tools:
 ```bash
 xcode-select --install
 ```
@@ -219,9 +216,6 @@ A: Make sure you're using the correct process name (e.g., `notepad.exe`). Check 
 **Q: Can't detect Mac applications**
 A: Try using just the app name without ".app" (e.g., "Steam" instead of "Steam.app"). For some apps, you may need to use the actual process name.
 
-**Q: Permission denied when starting apps**
-A: Check System Preferences > Security & Privacy > Privacy > Automation and ensure Pairkiller has the necessary permissions.
-
 #### Linux
 **Q: AppImage won't run**
 A: Ensure the file is executable (`chmod +x Pairkiller.AppImage`) and that you have FUSE installed.
@@ -231,8 +225,8 @@ A: Ensure the file is executable (`chmod +x Pairkiller.AppImage`) and that you h
 **Q: Controlled app isn't starting**
 A: Verify the path to the executable is correct. Use the "Browse" button to select the file.
 
-**Q: High CPU usage**
-A: Increase the monitoring interval in settings to reduce frequency of checks.
+**Q: An app didn't close (or open) when I expected**
+A: Open **Activity** to see what Pairkiller did and when. If it says an app couldn't be closed, that app is probably running as administrator, which a normal app isn't allowed to close.
 
 ### Debug mode
 ```bash
@@ -242,7 +236,8 @@ bun run dev
 ### In-app updates (installed builds)
 
 - Pairkiller checks GitHub Releases in the background (packaged builds only) and notifies you when a newer version is available.
-- Downloads are manual-confirm: you choose when to install. After a build is downloaded, you can use **Install & Restart** or simply **quit the app** — the pending update is applied on quit when possible.
+- Updates download in the background. When one is ready, use **Restart to update** in the app or tray menu, or simply **quit the app** — the pending update is applied on quit when possible.
+- macOS builds are unsigned and can't replace themselves, so the app points you to the download page instead.
 - Development runs (`bun run dev`) skip automatic update checks to avoid noise.
 
 ### Windows install & uninstall
@@ -253,9 +248,10 @@ bun run dev
 - **Uninstall**: **Settings → Apps** (or **Add or remove programs**) → **Pairkiller** → **Uninstall**. That removes program files and shortcuts; **`deleteAppDataOnUninstall`** is off, so your profile under **`%APPDATA%\pairkiller`** (Electron `userData` for this package name) is kept unless you remove it yourself.
 
 ### Logs
-- **Windows**: config and app data under **`%APPDATA%\pairkiller`**
-- **macOS**: `~/Library/Logs/Pairkiller/`
-- **Linux**: `~/.config/Pairkiller/logs/`
+Pairkiller keeps a rolling log of what it did and why. **Settings → Activity log** opens its folder.
+- **Windows**: `%APPDATA%Pairkillerlogspairkiller.log`
+- **macOS**: `~/Library/Application Support/Pairkiller/logs/pairkiller.log`
+- **Linux**: `~/.config/Pairkiller/logs/pairkiller.log`
 
 ## 📝 License
 
@@ -272,8 +268,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - Originally created because Fraser wanted Blitz to only run with League of Legends
 - Built with [Electron](https://electronjs.org/) for cross-platform compatibility
-- UI styled with [Tailwind CSS](https://tailwindcss.com/)
-- Icons by [Font Awesome](https://fontawesome.com/)
+- Process list access on Windows via [Koffi](https://koffi.dev/)
 
 ## 📊 Stats
 
