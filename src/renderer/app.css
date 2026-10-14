@@ -58,6 +58,7 @@
     --switch-off-thumb: rgba(0, 0, 0, 0.61);
     --smoke: rgba(0, 0, 0, 0.3);
     --dialog: #ffffff;
+    --menu: #f9f9f9;
     --dialog-footer: #f3f3f3;
     --dialog-stroke: rgba(117, 117, 117, 0.4);
     --dialog-shadow: 0 32px 64px rgba(0, 0, 0, 0.19), 0 2px 21px rgba(0, 0, 0, 0.15);
@@ -95,6 +96,7 @@
         --switch-off-stroke: rgba(255, 255, 255, 0.61);
         --switch-off-thumb: rgba(255, 255, 255, 0.79);
         --dialog: #2b2b2b;
+        --menu: #2c2c2c;
         --dialog-footer: #202020;
         --dialog-stroke: rgba(117, 117, 117, 0.4);
         --dialog-shadow: 0 32px 64px rgba(0, 0, 0, 0.37), 0 2px 21px rgba(0, 0, 0, 0.3);
@@ -155,6 +157,7 @@
     --switch-off: rgba(120, 120, 128, 0.24);
     --smoke: rgba(0, 0, 0, 0.2);
     --dialog: #f2f2f2;
+    --menu: #f6f6f6;
     --dialog-footer: transparent;
     --dialog-stroke: rgba(0, 0, 0, 0.2);
     --dialog-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.2), 0 24px 60px rgba(0, 0, 0, 0.35);
@@ -191,6 +194,7 @@
         --switch-off: rgba(120, 120, 128, 0.4);
         --smoke: rgba(0, 0, 0, 0.4);
         --dialog: #2a2a2a;
+        --menu: #2b2b2b;
         --dialog-stroke: rgba(255, 255, 255, 0.14);
         --dialog-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.8), 0 24px 60px rgba(0, 0, 0, 0.6);
         --infobar: rgba(255, 214, 10, 0.14);
@@ -1074,6 +1078,14 @@ img {
 
 .select:hover {
     background-color: var(--control-hover);
+}
+
+/* The open list is drawn by Chromium from the options' own colours (macOS shows a native menu
+   instead). Left unset, they inherit the control's translucent fill, which the list paints over
+   white, so light text vanished in dark mode. */
+.select option {
+    background-color: var(--menu);
+    color: var(--text);
 }
 
 .field {
