@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [7.0.1](https://github.com/hybes/pairkiller/compare/v7.0.0...v7.0.1) (2026-10-14)
+
+### Bug Fixes
+
+* unreadable dropdown lists in dark mode on Windows ([c60c2f8](https://github.com/hybes/pairkiller/commit/c60c2f82ebd768c0a6f2aee353a93753b14cf7be))
+
 ## [7.0.0](https://github.com/hybes/pairkiller/compare/v6.0.5...v7.0.0) (2026-10-13)
 
 ### ⚠ BREAKING CHANGES
