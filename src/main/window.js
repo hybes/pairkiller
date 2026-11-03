@@ -17,7 +17,7 @@ function supportsMica(platform) {
     return Number.isFinite(build) && build >= 22621;
 }
 
-function createWindowManager({ platform, uiPlatform, isDev, stateFile, onOpen, onClosed }) {
+function createWindowManager({ platform, uiPlatform, isDev, monitoring, stateFile, onOpen, onClosed }) {
     let win = null;
     let pendingRoute = null;
     const mica = supportsMica(platform) && uiPlatform === 'win32';
@@ -70,7 +70,11 @@ function createWindowManager({ platform, uiPlatform, isDev, stateFile, onOpen, o
                 nodeIntegration: false,
                 sandbox: true,
                 spellcheck: false,
-                additionalArguments: [`--pairkiller-ui=${uiPlatform}`, mica ? '--pairkiller-mica' : '--pairkiller-solid'],
+                additionalArguments: [
+                    `--pairkiller-ui=${uiPlatform}`,
+                    mica ? '--pairkiller-mica' : '--pairkiller-solid',
+                    `--pairkiller-monitoring=${JSON.stringify(monitoring)}`,
+                ],
             },
         };
 

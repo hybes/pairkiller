@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('pairkiller', {
     ui: argument('--pairkiller-ui=') || process.platform,
     preview: (argument('--pairkiller-ui=') || process.platform) !== process.platform,
     mica: process.argv.includes('--pairkiller-mica'),
+    monitoring: JSON.parse(argument('--pairkiller-monitoring=') || '{"enabled":false,"tracesSampleRate":0}'),
 
     bootstrap: call('bootstrap'),
     saveRules: call('rules:save'),
