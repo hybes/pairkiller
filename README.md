@@ -129,7 +129,7 @@ bun run test     # unit tests for the rule engine, config and process parsing
 bun run lint
 ```
 
-There is no build step for the interface: `src/renderer` is plain HTML, CSS and JavaScript.
+The interface in `src/renderer` is plain HTML, CSS and JavaScript. The renderer's error-reporting SDK is bundled locally by `bun run build:monitoring`, which runs automatically before `start`, `dev` and every packaging command.
 
 On **macOS**, packaged installs often use **menu-bar only** mode (no Dock icon). A development run always shows the Dock icon and opens the window.
 
@@ -141,7 +141,21 @@ Development runs understand a few environment variables:
 | `PAIRKILLER_DRY_RUN=1` | Evaluate rules and log what would happen, without opening or closing anything |
 | `PAIRKILLER_UI_PLATFORM=darwin|win32` | Preview the other platform's look |
 
-`bunx electron scripts/dev-screenshots.js <output-dir> [win32|darwin] [empty]` renders every screen to PNG, in light and dark, without showing a window.
+Run `bun run build:monitoring` first, then `bunx electron scripts/dev-screenshots.js <output-dir> [win32|darwin] [empty]` to render every screen to PNG, in light and dark, without showing a window.
+
+### Error monitoring
+
+Main and renderer errors use the existing Sentry Electron SDK and go to [our GlitchTip](https://error.cnnct.uk/), organisation `connect-dorset`, project `pairkiller`. Packaged apps use the public DSN in `src/monitoring.js`. Set `SENTRY_DSN` in the app's environment to override it for both processes; renderer events pass through the main process over IPC.
+
+Reporting is disabled in development unless `SENTRY_DSN` is set, and always disabled when `NODE_ENV=test`. `SENTRY_DISABLED=true` disables it in packaged apps too. Electron does not load `.env` files; `.env.example` documents the variables to export. For example:
+
+```bash
+SENTRY_DSN=https://9d9c2ec177654b48bdce3e218aca0d3a@error.cnnct.uk/8 bun run dev
+```
+
+The existing **Send error reports** preference and privacy filters still apply. Errors are sampled at 100%; traces at 1% in packaged apps and 0% in development. Release-health sessions, client reports, logs and metrics are disabled. Replay, profiling and feedback widgets are not enabled.
+
+There is no source-map upload step or token to configure. App code ships as readable JavaScript; the generated SDK bundle is included in the package.
 
 ### Building for distribution
 

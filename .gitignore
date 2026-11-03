@@ -1,5 +1,6 @@
 dist
 node_modules
+/src/renderer/generated/
 package-lock.json
 .env
 *.backup.*

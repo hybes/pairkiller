@@ -4,6 +4,7 @@ const { app, Menu, Notification, nativeTheme, powerMonitor, shell, systemPrefere
 const os = require('os');
 const path = require('path');
 const Sentry = require('@sentry/electron/main');
+const { glitchtipOptions, monitoringConfig } = require('../monitoring');
 
 const { ConfigStore, clampInterval } = require('./config');
 const { createLog } = require('./log');
@@ -19,8 +20,7 @@ const { registerIpc } = require('./ipc');
 const platform = process.platform;
 const isDev = !app.isPackaged;
 const REPO_URL = 'https://github.com/hybes/pairkiller';
-const PII_HEADERS = ['forwarded', '-ip', 'remote-', 'via', '-user'];
-const SENTRY_DSN = process.env.SENTRY_DSN || 'https://8cf399a69648dc38f3031071446b40e7@o4507687244136448.ingest.de.sentry.io/4508365136855120';
+const monitoring = monitoringConfig({ isPackaged: app.isPackaged, env: process.env });
 
 // Lets a development copy run next to the installed app without sharing its lock or config.
 if (isDev && process.env.PAIRKILLER_USER_DATA) {
@@ -40,32 +40,21 @@ const store = new ConfigStore({ file: path.join(userData, 'config.json'), platfo
 store.load();
 
 Sentry.init({
-    dsn: SENTRY_DSN,
-    // Decided before anything is sent: someone who opted out sends nothing at all, sessions included.
-    enabled: store.data.anonymousUsage && (app.isPackaged || Boolean(process.env.SENTRY_DSN)),
+    ...glitchtipOptions(),
+    ...monitoring,
+    enabled: store.data.anonymousUsage && monitoring.enabled,
     release: app.getVersion(),
-    environment: isDev ? 'development' : 'production',
     // The SDK can rewrite modules as they load to trace servers and databases. There is nothing
     // of that kind here, and a background utility shouldn't pay for it at startup.
     enableRuntimeChannelInjection: false,
-    // Reports are promised to be anonymous. Since v8 the SDK attaches IP addresses, cookies and
-    // request data unless each category is turned off, so this pins the restrictive baseline.
-    dataCollection: {
-        userInfo: false,
-        cookies: false,
-        httpHeaders: { request: { deny: PII_HEADERS }, response: { deny: PII_HEADERS } },
-        httpBodies: [],
-        urlQueryParams: { deny: PII_HEADERS },
-        genAI: { inputs: false, outputs: false },
-        databaseQueryData: false,
-        queues: false,
-        graphQL: { document: false, variables: false },
-    },
     beforeSend(event) {
         if (!store.data.anonymousUsage) return null;
-        event.tags = { ...event.tags, app: 'Pairkiller', platform, electron: process.versions.electron };
+        event.tags = { ...event.tags, application: 'pairkiller', app: 'Pairkiller', platform, electron: process.versions.electron };
         event.extra = { ...event.extra, ruleCount: store.data.appGroups.length };
         return event;
+    },
+    beforeSendTransaction(event) {
+        return store.data.anonymousUsage ? event : null;
     },
 });
 
@@ -89,6 +78,7 @@ const windows = createWindowManager({
     platform,
     uiPlatform,
     isDev,
+    monitoring: { enabled: store.data.anonymousUsage && monitoring.enabled, tracesSampleRate: monitoring.tracesSampleRate },
     stateFile: path.join(userData, 'window-state.json'),
     onOpen: applyDock,
     onClosed: applyDock,

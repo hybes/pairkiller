@@ -2,7 +2,7 @@ const js = require('@eslint/js');
 const globals = require('globals');
 
 module.exports = [
-  { ignores: ['dist/**', 'node_modules/**'] },
+  { ignores: ['dist/**', 'node_modules/**', 'src/renderer/generated/**'] },
   {
     ...js.configs.recommended,
     files: ['**/*.js'],
@@ -28,6 +28,12 @@ module.exports = [
       globals: {
         ...globals.browser,
       },
+    },
+  },
+  {
+    files: ['src/renderer/monitoring.js'],
+    languageOptions: {
+      sourceType: 'module',
     },
   },
   {
