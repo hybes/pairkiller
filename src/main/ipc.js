@@ -3,6 +3,7 @@
 const { BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const { describe } = require('../monitoring');
 const { normalizeRules } = require('./config');
 
 function registerIpc(context) {
@@ -146,7 +147,7 @@ function registerIpc(context) {
 
     handle('open:external', (_event, url) => {
         if (typeof url === 'string' && /^(https:\/\/|mailto:)/i.test(url)) return shell.openExternal(url);
-        log.warn(`ipc: rejected external URL ${String(url)}`, { url });
+        log.warn(`ipc: rejected external URL ${describe(url)}`, { url });
     });
 
     handle('open:reveal', (_event, what) => {

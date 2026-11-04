@@ -2,7 +2,7 @@
 
 const assert = require('assert');
 const { test } = require('./harness');
-const { glitchtipOptions, monitoringConfig, scrubSecrets, scrubText } = require('../src/monitoring');
+const { describe, glitchtipOptions, monitoringConfig, scrubSecrets, scrubText } = require('../src/monitoring');
 
 test('monitoring: packaged apps report to GlitchTip with low trace sampling', () => {
     const options = monitoringConfig({ isPackaged: true, env: {} });
@@ -49,7 +49,7 @@ test('monitoring: useful diagnostics are collected without unsupported telemetry
     assert.strictEqual(options.traceLifecycle, 'static');
     assert.strictEqual(options.sendClientReports, false);
     assert.strictEqual(options.enableLogs, true);
-    assert.strictEqual(options.beforeSendLog({ message: 'config: saved' }).message, '[pairkiller] config: saved');
+    assert.strictEqual(options.beforeSendLog({ message: 'config: saved' }).message, 'config: saved');
     assert.strictEqual(options.beforeSendMetric({ name: 'do not send' }), null);
     assert.strictEqual(options.initialScope.tags.application, 'pairkiller');
     assert.strictEqual(options.initialScope.tags.service, 'pairkiller');
@@ -84,14 +84,17 @@ test('monitoring: main and renderer logs share service and retain their own runt
     assert.strictEqual(main.attributes.runtime, 'server');
     assert.strictEqual(main.attributes.environment, 'production');
     assert.strictEqual(main.attributes.release, '7.0.1');
+    assert.strictEqual(main.message, 'config: failed');
+    // Older renderer bundles still prefixed the project name; GlitchTip already shows it as the service.
     const renderer = glitchtipOptions({ runtime: 'browser' }).beforeSendLog({ message: '[pairkiller] config: failed', attributes: { 'host.name': 'wrong' } });
-    assert.strictEqual(renderer.message, '[pairkiller] config: failed');
+    assert.strictEqual(renderer.message, 'config: failed');
+    assert.strictEqual(glitchtipOptions({ runtime: 'browser' }).beforeSendLog({ message: 'save failed' }).message, 'browser: save failed');
     assert.ok(!('host.name' in renderer.attributes));
     // This is also the path taken by Electron's logger IPC, which skips main's beforeSendLog.
     const envelope = [{}, [serializedLog({ runtime: 'browser', 'host.name': 'wrong', email: 'ben@example.com', accessToken: 'private-value', attempts: 3, 'duration.ms': 4.5, pids: [101, 102] })]];
     envelopeHook(options)(envelope);
     const log = envelope[1][0][1].items[0];
-    assert.strictEqual(log.body, '[pairkiller] apps: launch failed for /Users/ben/Blitz.app');
+    assert.strictEqual(log.body, 'apps: launch failed for /Users/ben/Blitz.app');
     assert.strictEqual(log.attributes['service.name'].value, 'pairkiller');
     assert.strictEqual(log.attributes.runtime.value, 'browser');
     assert.ok(!('host.name' in log.attributes));
@@ -239,4 +242,46 @@ test('monitoring: log attributes and serialised renderer envelopes redact secret
         assert.strictEqual(JSON.parse(sent.payload.value)[key], '[Filtered]', `renderer JSON ${key}`);
         assert.ok(!JSON.stringify(envelope).includes('private-value'), key);
     }
+});
+
+const runtimeNoise = [
+    '(node:4242) ExperimentalWarning: vm.USE_MAIN_CONTEXT_DEFAULT_LOADER is an experimental feature and might change at any time\n(Use `Electron --trace-warnings ...` to show where the warning was created)',
+    '(node:4242) [DEP0040] DeprecationWarning: The `punycode` module is deprecated.',
+    '(node:4242) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/index.js is not specified',
+    'DeprecationWarning: Buffer() is deprecated',
+    '(Use `node --trace-deprecation ...` to show where the warning was created)',
+];
+
+test('monitoring: Node and Electron runtime warnings from captured console output are not sent', () => {
+    const options = glitchtipOptions({ runtime: 'browser' });
+    for (const message of runtimeNoise) {
+        assert.strictEqual(options.beforeSendLog({ level: 'error', message, attributes: { 'sentry.origin': 'auto.log.console' } }), null, message);
+    }
+    const envelope = [{}, [serializedLog(), [{ type: 'log', item_count: 2 }, { items: runtimeNoise.map((body) => ({ body, level: 'warn', attributes: {} })) }]]];
+    envelopeHook(glitchtipOptions())(envelope);
+    assert.strictEqual(envelope[1].length, 1);
+    assert.strictEqual(envelope[1][0][1].items[0].body, 'apps: launch failed for /Users/ben/Blitz.app');
+    assert.ok(options.beforeSendLog({ message: 'rules: closing Blitz.exe failed: EPERM' }));
+});
+
+function hostile() {
+    const value = Object.create(null);
+    Object.defineProperty(value, 'body', { enumerable: true, get() { throw new Error('getter'); } });
+    return value;
+}
+
+test('monitoring: unreadable values are described and filtered without throwing', () => {
+    const { proxy, revoke } = Proxy.revocable({}, {});
+    revoke();
+    for (const value of [Object.create(null), hostile(), proxy, Symbol('x'), 12n, { toString() { throw new Error('nope'); } }]) {
+        assert.strictEqual(typeof describe(value), 'string');
+        assert.doesNotThrow(() => scrubSecrets({ value, nested: [value] }));
+    }
+    assert.deepStrictEqual(scrubSecrets({ request: hostile(), count: 12n }), { request: { body: '[Unreadable]' }, count: '12' });
+    const options = glitchtipOptions();
+    assert.doesNotThrow(() => options.beforeSendLog({ message: Object.create(null), attributes: { body: hostile() } }));
+    assert.doesNotThrow(() => options.beforeSendLog(null));
+    const envelope = [{}, [[{ type: 'log' }, { items: [{ body: 'x', level: 'warn', get attributes() { throw new Error('broken'); } }] }]]];
+    assert.doesNotThrow(() => envelopeHook(options)(envelope));
+    assert.deepStrictEqual(envelope[1], []);
 });
