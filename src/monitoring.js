@@ -16,9 +16,37 @@ function isRuntimeNoise(message) {
     return RUNTIME_NOISE.test(describe(message));
 }
 
+// Hostnames that only exist on a developer's machine or network. An empty hostname is not local:
+// the packaged renderer loads from file://, and its events must still report.
+function isLocalHostname(hostname) {
+    const host = String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+    if (!host) return false;
+    if (['localhost', '127.0.0.1', '::1', '0.0.0.0'].includes(host)) return true;
+    if (/\.(?:local|localhost|test)$/.test(host)) return true;
+    if (/^(?:127|10)\.\d+\.\d+\.\d+$/.test(host) || /^192\.168\.\d+\.\d+$/.test(host)) return true;
+    if (/^172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(host)) return true;
+    return !host.includes('.') && !host.includes(':');
+}
+
+function isLocalUrl(url) {
+    if (typeof url !== 'string' || !url) return false;
+    try { return isLocalHostname(new URL(url).hostname); } catch (_) { return false; }
+}
+
+// Page or request URLs only. Device hostnames (server_name, host.name) are not checked:
+// a user's PC is often called DESKTOP-1234 or ben.local and its reports are real.
+const fromLocalPage = (event) => isLocalUrl(event?.request?.url);
+const logFromLocalPage = (attributes) => isLocalUrl(attributes?.['url.full']) || isLocalUrl(attributes?.['page.url']);
+
+// Set by the GitHub release and PR build workflows when packaging; any other build is local.
+function releaseChannel(env) {
+    const channel = env.PAIRKILLER_RELEASE_CHANNEL;
+    return env.GITHUB_ACTIONS === 'true' && (channel === 'production' || channel === 'preview') ? channel : 'development';
+}
+
 function glitchtipOptions({ runtime = 'server', hostname, isEnabled = () => true, integrations = [] } = {}) {
     function prepareLog(log) {
-        if (isRuntimeNoise(log.message)) return null;
+        if (isRuntimeNoise(log.message) || logFromLocalPage(log.attributes)) return null;
         const source = log.attributes?.runtime || runtime;
         const attributes = { ...log.attributes, 'service.name': 'pairkiller', runtime: source };
         if (source === 'browser') delete attributes['host.name'];
@@ -48,10 +76,10 @@ function glitchtipOptions({ runtime = 'server', hostname, isEnabled = () => true
                 }).filter(Boolean);
                 item[0].item_count = item[1].items.length;
             } else if (item[1] && typeof item[1] === 'object' && !(item[1] instanceof Uint8Array)) {
-                item[1] = scrubSecrets(item[1]);
+                item[1] = fromLocalPage(item[1]) ? null : scrubSecrets(item[1]);
             }
         }
-        envelope[1] = envelope[1].filter(([header, payload]) => header.type !== 'log' || payload.items.length > 0);
+        envelope[1] = envelope[1].filter(([header, payload]) => payload !== null && (header.type !== 'log' || payload.items.length > 0));
     }
 
     return {
@@ -83,10 +111,10 @@ function glitchtipOptions({ runtime = 'server', hostname, isEnabled = () => true
         ],
         initialScope: { tags: { application: 'pairkiller', service: 'pairkiller' } },
         beforeSend(event) {
-            if (!isEnabled()) return null;
+            if (!isEnabled() || fromLocalPage(event)) return null;
             return scrubSecrets({ ...event, tags: { ...event.tags, application: 'pairkiller', service: 'pairkiller' } });
         },
-        beforeSendTransaction: (event) => isEnabled() ? scrubSecrets(event) : null,
+        beforeSendTransaction: (event) => isEnabled() && !fromLocalPage(event) ? scrubSecrets(event) : null,
         dataCollection: {
             userInfo: true,
             cookies: false,
@@ -97,14 +125,17 @@ function glitchtipOptions({ runtime = 'server', hostname, isEnabled = () => true
     };
 }
 
-function monitoringConfig({ isPackaged, env }) {
-    const override = env.SENTRY_DSN?.trim();
+// Only packaged apps built by GitHub Actions report: production for releases, preview for PR builds.
+// `bun run dev`, tests and apps packaged on a developer's machine stay quiet unless SENTRY_FORCE=1.
+function monitoringConfig({ isPackaged, channel = 'development', env }) {
+    const deployed = isPackaged && (channel === 'production' || channel === 'preview');
+    const forced = env.SENTRY_FORCE === '1' || env.SENTRY_FORCE === 'true';
     return {
-        dsn: override || DEFAULT_DSN,
-        enabled: env.NODE_ENV !== 'test' && env.SENTRY_DISABLED !== 'true' && (isPackaged || Boolean(override)),
-        environment: env.NODE_ENV === 'test' ? 'test' : isPackaged ? 'production' : 'development',
-        tracesSampleRate: isPackaged ? 0.01 : 0,
+        dsn: env.SENTRY_DSN?.trim() || DEFAULT_DSN,
+        enabled: env.NODE_ENV !== 'test' && env.SENTRY_DISABLED !== 'true' && (deployed || forced),
+        environment: env.NODE_ENV === 'test' ? 'test' : deployed ? channel : 'development',
+        tracesSampleRate: deployed ? 0.01 : 0,
     };
 }
 
-module.exports = { describe, glitchtipOptions, logMessage, monitoringConfig, scrubSecrets, scrubText };
+module.exports = { describe, glitchtipOptions, isLocalHostname, isLocalUrl, logMessage, monitoringConfig, releaseChannel, scrubSecrets, scrubText };

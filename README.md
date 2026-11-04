@@ -145,12 +145,20 @@ Run `bun run build:monitoring` first, then `bunx electron scripts/dev-screenshot
 
 ### Errors and structured logs
 
-Main and renderer errors use the existing Sentry Electron SDK and go to [our GlitchTip](https://error.cnnct.uk/), organisation `connect-dorset`, project `pairkiller`. Packaged apps use the public DSN in `src/monitoring.js`. Set `SENTRY_DSN` in the app's environment to override it for both processes; renderer events pass through the main process over IPC.
+Main and renderer errors use the existing Sentry Electron SDK and go to [our GlitchTip](https://error.cnnct.uk/), organisation `connect-dorset`, project `pairkiller`. The public DSN is in `src/monitoring.js`; `SENTRY_DSN` overrides the destination for both processes, and renderer events pass through the main process over IPC.
 
-Reporting is disabled in development unless `SENTRY_DSN` is set, and always disabled when `NODE_ENV=test`. `SENTRY_DISABLED=true` disables it in packaged apps too. Electron does not load `.env` files; `.env.example` documents the variables to export. For example:
+Only apps packaged by GitHub Actions report. The packaging step (`build:monitoring`) writes `src/generated/build.json`, and the channel is set only when `GITHUB_ACTIONS=true` and the workflow sets `PAIRKILLER_RELEASE_CHANNEL`:
+
+- **Release** workflow builds report as `production`.
+- **PR Build and Test** builds report as `preview`.
+- Everything else is `development` and does not report: `bun run dev`, `bun start`, `bun run test`, and apps packaged on your own machine (including ones uploaded to a release by hand).
+
+As a backstop, events, transactions and logs whose page or request URL is a local address (localhost, loopback, `*.local`, `*.localhost`, `*.test`, private IPs or a dotless LAN name) are dropped. The packaged renderer loads from `file://`, so this never affects real installs, and device hostnames such as `DESKTOP-1234` or `bens-mac.local` are not checked.
+
+To send reports from a local run on purpose, set `SENTRY_FORCE=1`; they're tagged `development`. A `SENTRY_DSN` on its own doesn't enable reporting. `NODE_ENV=test` and `SENTRY_DISABLED=true` always turn it off, including in releases. Electron does not load `.env` files; `.env.example` documents the variables to export. For example:
 
 ```bash
-SENTRY_DSN=https://9d9c2ec177654b48bdce3e218aca0d3a@error.cnnct.uk/8 bun run dev
+SENTRY_FORCE=1 bun run dev
 ```
 
 In GlitchTip, open **Logs** in `connect-dorset` and select **Service → pairkiller**. GlitchTip shows the service on each line, so messages start with their area (for example `config: could not save …`) and include key facts. Open a line for structured attributes: rule/app ids and names, paths, retry attempts, durations, error codes, messages and stacks. Main-process logs have `runtime=server` and `host.name` set to the device hostname; renderer logs have `runtime=browser` and no hostname. Both include environment and app-version release. Issues carry both `application=pairkiller` and `service=pairkiller`.
@@ -159,7 +167,7 @@ The rolling logger sends warnings and errors for rule actions, process-list fail
 
 The existing **Send error reports** preference controls errors and logs. Turning it off stops outgoing reports immediately; turning it back on may need a restart. App names, user paths, hostnames, URLs, user ids, emails, names, phone numbers, amounts, status codes, error messages, stacks and available request bodies are retained. Passwords, API keys/tokens, Authorization headers, cookies/session ids, OAuth codes/state, signed URL signatures and card data are filtered in events and logs. Pairkiller has no accounts or signed-in user to attach to issues.
 
-Errors are sampled at 100%; traces at 1% in packaged apps and 0% in development. Release-health sessions, client reports and metrics are disabled. Replay, profiling and feedback widgets are not enabled. Reporting failures never interrupt app actions. No hosting changes are needed: this is a desktop app and the public DSN already ships with it.
+Errors are sampled at 100%; traces at 1% in release and preview builds and 0% in development. Release-health sessions, client reports and metrics are disabled. Replay, profiling and feedback widgets are not enabled. Reporting failures never interrupt app actions. No hosting secrets are needed: this is a desktop app and the public DSN already ships with it.
 
 There is no source-map upload step or token to configure. App code ships as readable JavaScript; the generated SDK bundle is included in the package.
 
