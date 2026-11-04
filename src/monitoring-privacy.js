@@ -7,10 +7,13 @@ const ASSIGNMENT = new RegExp(`(?<![\\w-])(["']?${TEXT_KEY}["']?\\s*[:=]\\s*)("[
 const QUERY_SECRET = new RegExp(`([?&#;](?:${TEXT_KEY}|x-amz-credential|x-goog-credential)=)[^&#;\\s"'<>]*`, 'gi');
 
 function secretKey(key, context) {
-    const normal = key.replace(/([a-z])([A-Z])/g, '$1_$2');
+    const normal = key
+        .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+        .replace(/([a-z\d])([A-Z])/g, '$1_$2')
+        .replace(/[._-]+/g, '_');
     return SECRET_KEY.test(normal) || /^(?:access|refresh|id|auth)[_-]?token$/i.test(normal)
         || (/^(?:number|exp_month|exp_year|expiry|expiration)$/i.test(normal) && /(?:^|[._-])card(?:$|[._-])/i.test(context))
-        || /(?:^|[._-])oauth[._-](?:code|state)$/i.test(normal)
+        || /(?:^|[._-])o_?auth[._-](?:code|state)$/i.test(normal)
         || (/^(?:code|state)$/i.test(normal) && /oauth/i.test(context));
 }
 

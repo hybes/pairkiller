@@ -181,3 +181,62 @@ test('monitoring: app names, backup timestamps, ordinary URL codes and states su
     assert.ok(!scrubText('password=private-value').includes('private-value'));
     assert.ok(!scrubText('card 4242424242424242').includes('4242424242424242'));
 });
+
+const secretKeyVariants = [
+    'api-key', 'api_key', 'apiKey', 'APIKey', 'apiKEY',
+    'x-api-key', 'X-API-Key', 'X_API_KEY', 'xApiKey', 'XApiKey',
+    'access-token', 'access_token', 'accessToken', 'X-Access-Token',
+    'refresh-token', 'refresh_token', 'refreshToken',
+    'private-key', 'private_key', 'privateKey',
+    'code-verifier', 'code_verifier', 'codeVerifier',
+    'session-id', 'session_id', 'sessionId',
+    'card-number', 'card_number', 'cardNumber',
+    'oauth-code', 'oauth_code', 'oauthCode', 'OAuthCode',
+    'oauth-state', 'oauth_state', 'oauthState', 'OAuthState',
+];
+
+test('monitoring: event headers and fields redact secret keys in every supported spelling', () => {
+    for (const key of secretKeyVariants) {
+        const event = glitchtipOptions().beforeSend({ request: {
+            headers: { [key]: 'private-value', 'X-User': 'Ben' },
+            data: { [key]: 'private-value', email: 'ben@example.com', 'error.code': 'ENOENT' },
+        } });
+        assert.strictEqual(event.request.headers[key], '[Filtered]', `header ${key}`);
+        assert.strictEqual(event.request.data[key], '[Filtered]', `field ${key}`);
+        assert.strictEqual(event.request.headers['X-User'], 'Ben');
+        assert.strictEqual(event.request.data.email, 'ben@example.com');
+        assert.strictEqual(event.request.data['error.code'], 'ENOENT');
+    }
+});
+
+test('monitoring: parsed JSON bodies recursively redact secret key variants and remain valid JSON', () => {
+    for (const key of secretKeyVariants) {
+        const payload = { headers: { [key]: 'private-value' }, entries: [{ [key]: 'private-value', name: 'Ben' }] };
+        for (const body of [payload, [payload]]) {
+            const event = glitchtipOptions().beforeSend({ request: { data: JSON.stringify(body) } });
+            const parsed = JSON.parse(event.request.data);
+            const result = Array.isArray(parsed) ? parsed[0] : parsed;
+            assert.strictEqual(result.headers[key], '[Filtered]', `JSON header ${key}`);
+            assert.strictEqual(result.entries[0][key], '[Filtered]', `nested JSON field ${key}`);
+            assert.strictEqual(result.entries[0].name, 'Ben');
+            assert.ok(!event.request.data.includes('private-value'), key);
+        }
+    }
+});
+
+test('monitoring: log attributes and serialised renderer envelopes redact secret key variants', () => {
+    for (const key of secretKeyVariants) {
+        const attributes = { [key]: 'private-value', payload: JSON.stringify({ [key]: 'private-value', email: 'ben@example.com' }) };
+        const options = glitchtipOptions();
+        const log = options.beforeSendLog({ message: 'config: request failed', attributes });
+        assert.strictEqual(log.attributes[key], '[Filtered]', `log attribute ${key}`);
+        assert.strictEqual(JSON.parse(log.attributes.payload)[key], '[Filtered]', `log JSON ${key}`);
+        assert.strictEqual(JSON.parse(log.attributes.payload).email, 'ben@example.com');
+        const envelope = [{}, [serializedLog(attributes)]];
+        envelopeHook(options)(envelope);
+        const sent = envelope[1][0][1].items[0].attributes;
+        assert.strictEqual(sent[key].value, '[Filtered]', `renderer attribute ${key}`);
+        assert.strictEqual(JSON.parse(sent.payload.value)[key], '[Filtered]', `renderer JSON ${key}`);
+        assert.ok(!JSON.stringify(envelope).includes('private-value'), key);
+    }
+});
