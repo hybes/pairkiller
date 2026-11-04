@@ -51,7 +51,7 @@ function glitchtipOptions({ runtime = 'server', hostname, isEnabled = () => true
                                     } });
                                     return { ...log, body: prepared.message, attributes: Object.fromEntries(Object.entries(prepared.attributes)
                                         .filter(([, value]) => value !== undefined)
-                                        .map(([key, value]) => [key, { value, type: typeof value === 'number' ? (Number.isInteger(value) ? 'integer' : 'double') : typeof value }])) };
+                                        .map(([key, value]) => [key, { value, type: Array.isArray(value) ? 'array' : typeof value === 'number' ? (Number.isInteger(value) ? 'integer' : 'double') : typeof value }])) };
                                 });
                                 item[0].item_count = item[1].items.length;
                             } else if (item[1] && typeof item[1] === 'object' && !(item[1] instanceof Uint8Array)) {

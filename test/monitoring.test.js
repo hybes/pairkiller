@@ -88,7 +88,7 @@ test('monitoring: main and renderer logs share service and retain their own runt
     assert.strictEqual(renderer.message, '[pairkiller] config: failed');
     assert.ok(!('host.name' in renderer.attributes));
     // This is also the path taken by Electron's logger IPC, which skips main's beforeSendLog.
-    const envelope = [{}, [serializedLog({ runtime: 'browser', 'host.name': 'wrong', email: 'ben@example.com', accessToken: 'private-value', attempts: 3, 'duration.ms': 4.5 })]];
+    const envelope = [{}, [serializedLog({ runtime: 'browser', 'host.name': 'wrong', email: 'ben@example.com', accessToken: 'private-value', attempts: 3, 'duration.ms': 4.5, pids: [101, 102] })]];
     envelopeHook(options)(envelope);
     const log = envelope[1][0][1].items[0];
     assert.strictEqual(log.body, '[pairkiller] apps: launch failed for /Users/ben/Blitz.app');
@@ -100,6 +100,7 @@ test('monitoring: main and renderer logs share service and retain their own runt
     assert.strictEqual(log.attributes.email.value, 'ben@example.com');
     assert.deepStrictEqual(log.attributes.attempts, { value: 3, type: 'integer' });
     assert.deepStrictEqual(log.attributes['duration.ms'], { value: 4.5, type: 'double' });
+    assert.deepStrictEqual(log.attributes.pids, { value: [101, 102], type: 'array' });
     assert.ok(!JSON.stringify(envelope).includes('private-value'));
 });
 
@@ -124,7 +125,7 @@ test('monitoring: envelope guard drops sessions, metrics, profiles, replay and d
 test('monitoring: events retain people, bodies, error codes and stacks but remove secrets', () => {
     const event = glitchtipOptions().beforeSend({
         user: { id: '42', email: 'ben@example.com', name: 'Ben', phone: '+447123456789' },
-        request: { url: 'https://example.com/contact?email=ben@example.com&code=oauth-private&state=state-private',
+        request: { url: 'https://example.com/oauth/callback?email=ben@example.com&code=oauth-private&state=state-private',
             headers: { Authorization: 'auth-private', Cookie: 'cookie-private', 'X-User': 'Ben', 'X-Forwarded-For': '192.0.2.1' },
             data: { name: 'Ben', email: 'ben@example.com', amount: 412, password: 'password-private', apiKey: 'api-private', sessionId: 'session-private', card: { number: '4242424242424242', cvv: 'cvv-private' } } },
         exception: { values: [{ value: 'Failed 401 INVALID_KEY', stacktrace: { frames: [{ filename: '/Users/ben/App.js' }] } }] },
@@ -165,4 +166,18 @@ test('monitoring: text, nested JSON, URL signatures and credentials receive the 
     assert.ok(!JSON.stringify(auth).includes('private-value'));
     assert.ok(!JSON.stringify(auth).includes('4242424242424242'));
     assert.ok(JSON.stringify(auth).includes('ben@example.com'));
+});
+
+test('monitoring: app names, backup timestamps, ordinary URL codes and states survive filtering', () => {
+    for (const text of [
+        'Could not open Japan: Tokyo Drift',
+        'config.json.backup.1730736000000',
+        'timestamp 1730736000000',
+        'https://example.com/contact?code=AREA42&state=Dorset',
+        'Could not read /Users/ben/Japan: Tokyo Drift.app',
+    ]) assert.strictEqual(scrubText(text), text);
+    const authUrl = scrubText('https://example.com/auth/callback?code=private-value&state=private-value');
+    assert.ok(!authUrl.includes('private-value'));
+    assert.ok(!scrubText('password=private-value').includes('private-value'));
+    assert.ok(!scrubText('card 4242424242424242').includes('4242424242424242'));
 });

@@ -26,7 +26,17 @@ function createLog({ dir, echo = false, now = Date.now }) {
         if (entry.attributes['log.local']) return;
         if (!sink) { pending.push(entry); pending = pending.slice(-100); return; }
         try {
-            if (sink.isEnabled()) sink.logger[entry.level](entry.message, entry.attributes);
+            if (!sink.isEnabled()) return;
+            if (entry.level === 'warn' || entry.level === 'error') {
+                const key = `${entry.level}:${entry.attributes['log.key'] || entry.message}`;
+                const previous = repeats.get(key);
+                if (previous && now() - previous.at < REPEAT_WINDOW_MS) { previous.count++; return; }
+                if (previous?.count) entry.attributes['log.suppressed_count'] = previous.count;
+                repeats.delete(key);
+                repeats.set(key, { at: now(), count: 0 });
+                if (repeats.size > 1000) repeats.delete(repeats.keys().next().value);
+            }
+            sink.logger[entry.level](entry.message, entry.attributes);
         } catch (_) {
             // Reporting must never interrupt an app action or recurse through the logger.
         }
@@ -34,7 +44,7 @@ function createLog({ dir, echo = false, now = Date.now }) {
 
     function write(level, message, detail, extra = {}) {
         const error = detail instanceof Error || typeof detail === 'string' ? detail : null;
-        const attributes = scrubSecrets({
+        const attributes = Object.fromEntries(Object.entries(scrubSecrets({
             ...(error ? {
                 'error.message': error.message || String(error),
                 'error.code': error.code,
@@ -42,21 +52,12 @@ function createLog({ dir, echo = false, now = Date.now }) {
                 'http.status_code': error.statusCode || error.status,
             } : detail),
             ...extra,
-        });
+        })).filter(([, value]) => value !== undefined));
         const area = attributes.area || String(message).match(/^([\w-]+):/)?.[1] || 'app';
         attributes.area = area;
         const failure = error ? `: ${error.code ? `${error.code} ` : ''}${error.message || error}` : '';
         const body = logMessage(`${message}${failure}`, area);
         const entry = { level, message: scrubSecrets(body), attributes };
-        if (level === 'warn' || level === 'error') {
-            const key = `${level}:${attributes['log.key'] || body}`;
-            const previous = repeats.get(key);
-            if (previous && now() - previous.at < REPEAT_WINDOW_MS) { previous.count++; return; }
-            if (previous?.count) attributes['log.suppressed_count'] = previous.count;
-            repeats.delete(key);
-            repeats.set(key, { at: now(), count: 0 });
-            if (repeats.size > 1000) repeats.delete(repeats.keys().next().value);
-        }
         const line = `${new Date(now()).toISOString()} ${level.toUpperCase()} ${entry.message} ${JSON.stringify(attributes)}\n`;
         if (echo) process.stdout.write(line);
         send(entry);

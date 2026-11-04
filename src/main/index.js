@@ -187,7 +187,7 @@ const context = {
     theme,
     settings,
     persist() {
-        return store.save().catch((error) => { log.error(`config: could not save ${store.file}`, error, { path: store.file }); throw error; });
+        return store.save().catch((error) => log.error(`config: could not save ${store.file}`, error, { path: store.file }));
     },
     // Rules were edited somewhere other than the window (tray, menu): apply, save and tell the window.
     rulesChanged() {

@@ -34,9 +34,10 @@ function createUpdater({ app, log, onChange, beforeInstall }) {
     autoUpdater.allowDowngrade = false;
     autoUpdater.allowPrerelease = false;
     autoUpdater.logger = {
-        info() {},
+        info: (...messages) => log.info(`updater: ${messages.join(' ')}`, { 'log.local': true }),
         warn: (...messages) => log.warn(`updater: ${messages.join(' ')}`, { version: app.getVersion() }),
-        error: (...messages) => log.error(`updater: ${messages.join(' ')}`, { version: app.getVersion() }),
+        // Upstream repeats the error event here; retain the detail locally, send our contextual warning once.
+        error: (...messages) => log.error(`updater: ${messages.join(' ')}`, { version: app.getVersion(), 'log.local': true }),
         debug() {},
     };
 

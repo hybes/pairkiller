@@ -24,6 +24,7 @@ test('logger: forwards startup warnings, preserves error facts and limits repeat
         assert.ok(sent[0].message.startsWith('[pairkiller] rules:'));
         assert.ok(sent[0].message.includes('EPERM'));
         assert.ok(sent[0].attributes['error.stack'].includes('Error: permission denied'));
+        assert.ok(!('http.status_code' in sent[0].attributes));
         assert.ok(!JSON.stringify(sent).includes('private-value'));
         at += 5 * 60 * 1000;
         log.warn('rules: closing Blitz.exe failed (attempt 3)', error, { 'log.key': 'stop' });
@@ -37,7 +38,21 @@ test('logger: forwards startup warnings, preserves error facts and limits repeat
         const contents = fs.readFileSync(log.file, 'utf8');
         assert.ok(contents.includes('config: save failed'));
         assert.ok(contents.includes('rules: trigger changed'));
+        assert.ok(contents.includes('attempt 2'));
         assert.ok(!contents.includes('private-value'));
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('logger: omits missing error facts rather than sending empty attributes', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pairkiller-log-'));
+    try {
+        const log = createLog({ dir });
+        let attributes;
+        log.connect({ logger: { error(_message, facts) { attributes = facts; } }, isEnabled: () => true });
+        log.error('config: failed', new Error('no code'));
+        assert.strictEqual(attributes['error.message'], 'no code');
+        assert.ok(!('error.code' in attributes));
+        assert.ok(!('http.status_code' in attributes));
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

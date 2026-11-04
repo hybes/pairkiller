@@ -80,7 +80,10 @@
         if (saveTimer === null) return;
         clearTimeout(saveTimer);
         saveTimer = null;
-        bridge.saveRules(store.rules).catch((error) => console.error(`[pairkiller] config: could not save ${store.rules.length} rules: ${error.message}`, { 'rule.count': store.rules.length, 'error.message': error.message, 'error.stack': error.stack }));
+        bridge.saveRules(store.rules).catch((error) => {
+            const log = window.pairkillerLog || console;
+            log.error(`[pairkiller] config: could not save ${store.rules.length} rules: ${error.message}`, { 'rule.count': store.rules.length, 'error.message': error.message, 'error.stack': error.stack });
+        });
     }
     function commit() {
         clearTimeout(saveTimer);
