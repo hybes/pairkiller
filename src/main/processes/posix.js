@@ -39,21 +39,27 @@ async function procfs() {
 
 function signal(pids, name) {
     let failure = null;
+    let code;
+    let stack;
     for (const pid of pids) {
         if (pid === process.pid || pid === process.ppid) continue;
         try {
             process.kill(pid, name);
         } catch (error) {
-            if (error.code !== 'ESRCH') failure = error.code === 'EPERM' ? 'Permission denied' : error.message;
+            if (error.code !== 'ESRCH') {
+                failure = error.message;
+                code = error.code;
+                stack = error.stack;
+            }
         }
     }
-    return failure ? { ok: false, error: failure } : { ok: true };
+    return failure ? { ok: false, error: failure, code, stack } : { ok: true };
 }
 
 function launchDetached(file) {
     return new Promise((resolve) => {
         const child = spawn(file, [], { detached: true, stdio: 'ignore', cwd: path.dirname(file) });
-        child.once('error', (error) => resolve({ ok: false, error: error.message }));
+        child.once('error', (error) => resolve({ ok: false, error: error.message, code: error.code, stack: error.stack }));
         child.once('spawn', () => {
             child.unref();
             resolve({ ok: true });

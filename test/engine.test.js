@@ -254,7 +254,7 @@ test('engine: reports an app that cannot be opened and does not loop on it', asy
     await tick();
     for (let i = 0; i < 5; i++) await tick(2000);
     assert.strictEqual(host.calls.length, 1);
-    assert.ok(messages().includes('Couldn’t open Blitz: File not found'));
+    assert.ok(messages().some((message) => message.includes('Couldn’t open Blitz') && message.includes(BLITZ) && message.includes('File not found')));
     assert.strictEqual(engine.getState().rules.league.apps[0].status, 'error');
 });
 

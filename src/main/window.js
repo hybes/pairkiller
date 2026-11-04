@@ -17,7 +17,7 @@ function supportsMica(platform) {
     return Number.isFinite(build) && build >= 22621;
 }
 
-function createWindowManager({ platform, uiPlatform, isDev, monitoring, stateFile, onOpen, onClosed }) {
+function createWindowManager({ platform, uiPlatform, isDev, monitoring, log, stateFile, onOpen, onClosed }) {
     let win = null;
     let pendingRoute = null;
     const mica = supportsMica(platform) && uiPlatform === 'win32';
@@ -26,13 +26,17 @@ function createWindowManager({ platform, uiPlatform, isDev, monitoring, stateFil
         try {
             const saved = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
             const { x, y, width, height } = saved;
-            if (![x, y, width, height].every(Number.isFinite)) return null;
+            if (![x, y, width, height].every(Number.isFinite)) {
+                log.warn(`window: invalid saved bounds in ${stateFile}; using defaults`, { path: stateFile });
+                return null;
+            }
             // Ignore a position that is no longer on any connected display.
             const area = screen.getDisplayMatching({ x, y, width, height }).workArea;
             const visible = x < area.x + area.width - 80 && x + width > area.x + 80
                 && y >= area.y - 10 && y < area.y + area.height - 80;
             return visible ? { x, y, width, height } : { width, height };
-        } catch (_) {
+        } catch (error) {
+            if (error.code !== 'ENOENT') log.warn(`window: could not read ${stateFile}; using default bounds`, error, { path: stateFile });
             return null;
         }
     }
@@ -41,8 +45,8 @@ function createWindowManager({ platform, uiPlatform, isDev, monitoring, stateFil
         if (!win || win.isDestroyed() || win.isMinimized() || win.isMaximized() || win.isFullScreen()) return;
         try {
             fs.writeFileSync(stateFile, JSON.stringify(win.getBounds()));
-        } catch (_) {
-            // Losing the window position is not worth surfacing.
+        } catch (error) {
+            log.warn(`window: could not save bounds to ${stateFile}`, error, { path: stateFile, 'log.key': 'window-save-bounds' });
         }
     }
 
@@ -101,7 +105,14 @@ function createWindowManager({ platform, uiPlatform, isDev, monitoring, stateFil
         }
 
         win = new BrowserWindow(options);
-        win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+        const page = path.join(__dirname, '..', 'renderer', 'index.html');
+        win.loadFile(page).catch((error) => log.error(`window: could not load ${page}`, error, { path: page }));
+        win.webContents.on('render-process-gone', (_event, details) => {
+            if (details.reason !== 'clean-exit') log.error(`window: renderer exited (${details.reason}, code ${details.exitCode})`, { reason: details.reason, 'exit.code': details.exitCode });
+        });
+        win.webContents.on('preload-error', (_event, preloadPath, error) => {
+            log.error(`window: preload failed at ${preloadPath}`, error, { path: preloadPath });
+        });
 
         win.on('resized', saveBounds);
         win.on('moved', saveBounds);

@@ -108,7 +108,7 @@ class ConfigStore {
             try {
                 raw = JSON.parse(fs.readFileSync(this.file, 'utf8'));
             } catch (error) {
-                this.log.error('Config file is unreadable, looking for a backup', error);
+                this.log.error(`config: unreadable ${this.file}; looking for a backup`, error, { path: this.file });
                 raw = this.recover();
             }
         }
@@ -121,26 +121,28 @@ class ConfigStore {
         const base = path.basename(this.file);
         try {
             fs.copyFileSync(this.file, path.join(dir, `${base}.corrupt`));
-        } catch (_) {
-            // Keeping a copy for inspection is best effort.
+        } catch (error) {
+            this.log.warn(`config: could not preserve corrupt ${this.file}`, error, { path: this.file });
         }
         let backups = [];
         try {
             backups = fs.readdirSync(dir)
                 .filter((name) => name.startsWith(`${base}.backup.`))
                 .sort((a, b) => Number(b.split('.').pop()) - Number(a.split('.').pop()));
-        } catch (_) {
+        } catch (error) {
+            this.log.warn(`config: could not list backups in ${dir}; using defaults`, error, { path: dir });
             return null;
         }
         for (const name of backups) {
             try {
                 const restored = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
-                this.log.info(`Restored config from ${name}`);
+                this.log.info(`config: restored ${this.file} from ${name}`, { path: this.file, backup: name });
                 return restored;
-            } catch (_) {
-                // Try the next oldest backup.
+            } catch (error) {
+                this.log.warn(`config: could not restore ${name}; trying older backup`, error, { backup: name });
             }
         }
+        this.log.warn(`config: no usable backup for ${this.file}; using defaults`, { path: this.file, 'backup.count': backups.length });
         return null;
     }
 
@@ -161,7 +163,7 @@ class ConfigStore {
             // Antivirus scanners on Windows can briefly lock the target; a direct write still gets through.
             await fs.promises.unlink(temp).catch(() => {});
             await fs.promises.writeFile(this.file, contents, 'utf8');
-            this.log.warn('Atomic config save failed, wrote in place instead', error);
+            this.log.warn(`config: atomic save failed for ${this.file}; wrote in place`, error, { path: this.file, 'log.key': 'config-save-fallback' });
         }
     }
 
@@ -174,7 +176,9 @@ class ConfigStore {
         const backups = (await fs.promises.readdir(dir))
             .filter((name) => name.startsWith(`${base}.backup.`))
             .sort((a, b) => Number(b.split('.').pop()) - Number(a.split('.').pop()));
-        await Promise.all(backups.slice(5).map((name) => fs.promises.unlink(path.join(dir, name)).catch(() => {})));
+        await Promise.all(backups.slice(5).map((name) => fs.promises.unlink(path.join(dir, name)).catch((error) => {
+            this.log.warn(`config: could not remove old backup ${name}`, error, { backup: name });
+        })));
     }
 }
 

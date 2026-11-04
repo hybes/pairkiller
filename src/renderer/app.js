@@ -80,7 +80,7 @@
         if (saveTimer === null) return;
         clearTimeout(saveTimer);
         saveTimer = null;
-        bridge.saveRules(store.rules).catch((error) => console.error('Could not save rules', error));
+        bridge.saveRules(store.rules).catch((error) => console.error(`[pairkiller] config: could not save ${store.rules.length} rules: ${error.message}`, { 'rule.count': store.rules.length, 'error.message': error.message, 'error.stack': error.stack }));
     }
     function commit() {
         clearTimeout(saveTimer);
@@ -890,7 +890,7 @@
                     settingRow({
                         key: 'crashReports',
                         title: word('Send Error Reports', 'Send error reports'),
-                        subtitle: 'Anonymous reports when something goes wrong. Takes full effect after a restart.',
+                        subtitle: 'Send errors and activity logs, including app names, paths and device details. Changes take full effect after a restart.',
                     }),
                     row({
                         title: word('Activity Log', 'Activity log'),

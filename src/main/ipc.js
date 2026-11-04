@@ -10,6 +10,16 @@ function registerIpc(context) {
     const icons = new Map();
     let lastBrowseDir = null;
 
+    function handle(channel, handler) {
+        ipcMain.handle(channel, async (...args) => {
+            try { return await handler(...args); }
+            catch (error) {
+                log.error(`ipc: ${channel} failed`, error, { channel });
+                throw error;
+            }
+        });
+    }
+
     // Where the file picker should open: beside the app being relocated, else wherever the
     // user last picked from, else the place apps normally live on this platform.
     function browseStart(current) {
@@ -18,7 +28,7 @@ function registerIpc(context) {
         return candidates.find((dir) => dir && fs.existsSync(dir));
     }
 
-    ipcMain.handle('bootstrap', () => ({
+    handle('bootstrap', () => ({
         app: {
             version: app.getVersion(),
             isDev,
@@ -36,25 +46,26 @@ function registerIpc(context) {
         route: windows.takeRoute(),
     }));
 
-    ipcMain.handle('rules:save', async (_event, rules) => {
+    handle('rules:save', async (_event, rules) => {
+        if (!Array.isArray(rules)) log.warn('config: rejected rules save with a non-array value', { 'input.type': typeof rules });
         store.data.appGroups = normalizeRules(rules);
         context.applyRules();
         await context.persist();
         return store.data.appGroups;
     });
 
-    ipcMain.handle('settings:set', (_event, key, value) => context.setSetting(key, value));
+    handle('settings:set', (_event, key, value) => context.setSetting(key, value));
 
-    ipcMain.handle('apps:running', async () => {
+    handle('apps:running', async () => {
         try {
             return await host.listApps();
         } catch (error) {
-            log.warn('Could not list running apps', error);
+            log.warn(`processes: could not list apps with ${host.backend}; returning an empty picker`, error, { backend: host.backend });
             return [];
         }
     });
 
-    ipcMain.handle('apps:browse', async (event, current) => {
+    handle('apps:browse', async (event, current) => {
         const options = { properties: ['openFile'], defaultPath: browseStart(current) };
         if (platform === 'win32') {
             options.filters = [{ name: 'Apps', extensions: ['exe', 'bat', 'cmd', 'lnk'] }, { name: 'All files', extensions: ['*'] }];
@@ -70,7 +81,7 @@ function registerIpc(context) {
     });
 
     // Tells the editor whether an app's location still exists, and fetches the icon the OS shows for it.
-    ipcMain.handle('apps:icon', async (_event, file) => {
+    handle('apps:icon', async (_event, file) => {
         if (typeof file !== 'string' || !file) return { exists: false, icon: null };
         if (!fs.existsSync(file)) return { exists: false, icon: null };
         if (!icons.has(file)) {
@@ -78,8 +89,8 @@ function registerIpc(context) {
             try {
                 const image = await app.getFileIcon(file, { size: 'normal' });
                 if (!image.isEmpty()) icon = image.toDataURL({ scaleFactor: Math.max(...image.getScaleFactors()) });
-            } catch (_) {
-                // The row falls back to a generic glyph.
+            } catch (error) {
+                log.warn(`apps: could not read icon for ${file}; using default`, error, { path: file });
             }
             icons.set(file, icon);
         }
@@ -87,7 +98,7 @@ function registerIpc(context) {
     });
 
     // Native context and pull-down menus for the window. Resolves with the chosen item's id.
-    ipcMain.handle('menu:popup', (event, request) => new Promise((resolve) => {
+    handle('menu:popup', (event, request) => new Promise((resolve) => {
         const items = Array.isArray(request && request.items) ? request.items.slice(0, 40) : [];
         let settled = false;
         const settle = (value) => {
@@ -116,7 +127,7 @@ function registerIpc(context) {
         });
     }));
 
-    ipcMain.handle('dialog:confirm', async (event, request) => {
+    handle('dialog:confirm', async (event, request) => {
         const { response } = await dialog.showMessageBox(BrowserWindow.fromWebContents(event.sender), {
             type: 'warning',
             message: String(request.message || ''),
@@ -130,14 +141,15 @@ function registerIpc(context) {
         return response === 0;
     });
 
-    ipcMain.handle('update:check', () => updater.check({ manual: true }));
-    ipcMain.handle('update:install', () => updater.install());
+    handle('update:check', () => updater.check({ manual: true }));
+    handle('update:install', () => updater.install());
 
-    ipcMain.handle('open:external', (_event, url) => {
-        if (typeof url === 'string' && /^(https:\/\/|mailto:)/i.test(url)) shell.openExternal(url);
+    handle('open:external', (_event, url) => {
+        if (typeof url === 'string' && /^(https:\/\/|mailto:)/i.test(url)) return shell.openExternal(url);
+        log.warn(`ipc: rejected external URL ${String(url)}`, { url });
     });
 
-    ipcMain.handle('open:reveal', (_event, what) => {
+    handle('open:reveal', (_event, what) => {
         if (what === 'log') shell.showItemInFolder(log.file);
         if (what === 'config') shell.showItemInFolder(store.file);
     });
