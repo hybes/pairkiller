@@ -13,7 +13,7 @@
     "build:mac": "bun run build:monitoring && bunx electron-builder --mac --publish never",
     "build:win": "bun run build:monitoring && bunx electron-builder --win --publish never",
     "build:linux": "bun run build:monitoring && bunx electron-builder --linux --publish never",
-    "build:monitoring": "bun build src/renderer/monitoring.js --target browser --format iife --minify --outfile src/renderer/generated/monitoring.js",
+    "build:monitoring": "bun scripts/release-channel.js && bun build src/renderer/monitoring.js --target browser --format iife --minify --outfile src/renderer/generated/monitoring.js",
     "build:icons": "bun run build:icons:setup",
     "build:icons:setup": "bun scripts/copy-icon.js",
     "build:icons:create": "echo ImageMagick not available - using PNG icon for all formats",

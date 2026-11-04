@@ -20,7 +20,12 @@ const { registerIpc } = require('./ipc');
 const platform = process.platform;
 const isDev = !app.isPackaged;
 const REPO_URL = 'https://github.com/hybes/pairkiller';
-const monitoring = monitoringConfig({ isPackaged: app.isPackaged, env: process.env });
+
+// Written when packaging; GitHub release and PR builds say production or preview.
+function buildChannel() {
+    try { return require('../generated/build.json').channel; } catch (_) { return 'development'; }
+}
+const monitoring = monitoringConfig({ isPackaged: app.isPackaged, channel: buildChannel(), env: process.env });
 
 // Lets a development copy run next to the installed app without sharing its lock or config.
 if (isDev && process.env.PAIRKILLER_USER_DATA) {

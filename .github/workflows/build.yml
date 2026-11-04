@@ -32,6 +32,9 @@ jobs:
 
       - name: Build application
         run: bun run build
+        env:
+          # Lets the packaged test build report to GlitchTip as preview.
+          PAIRKILLER_RELEASE_CHANNEL: preview
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7

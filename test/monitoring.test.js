@@ -2,39 +2,95 @@
 
 const assert = require('assert');
 const { test } = require('./harness');
-const { describe, glitchtipOptions, monitoringConfig, scrubSecrets, scrubText } = require('../src/monitoring');
+const { describe, glitchtipOptions, isLocalHostname, isLocalUrl, monitoringConfig, releaseChannel, scrubSecrets, scrubText } = require('../src/monitoring');
 
-test('monitoring: packaged apps report to GlitchTip with low trace sampling', () => {
-    const options = monitoringConfig({ isPackaged: true, env: {} });
+test('monitoring: release builds from GitHub Actions report as production with low trace sampling', () => {
+    const channel = releaseChannel({ GITHUB_ACTIONS: 'true', PAIRKILLER_RELEASE_CHANNEL: 'production' });
+    assert.strictEqual(channel, 'production');
+    const options = monitoringConfig({ isPackaged: true, channel, env: {} });
     assert.strictEqual(options.dsn, 'https://9d9c2ec177654b48bdce3e218aca0d3a@error.cnnct.uk/8');
     assert.strictEqual(options.enabled, true);
     assert.strictEqual(options.environment, 'production');
     assert.strictEqual(options.tracesSampleRate, 0.01);
 });
 
-test('monitoring: development needs an explicit DSN and never samples traces', () => {
-    for (const dsn of [undefined, '', '   ']) {
-        assert.strictEqual(monitoringConfig({ isPackaged: false, env: { SENTRY_DSN: dsn } }).enabled, false);
+test('monitoring: PR builds from GitHub Actions report as preview', () => {
+    const channel = releaseChannel({ GITHUB_ACTIONS: 'true', PAIRKILLER_RELEASE_CHANNEL: 'preview' });
+    const options = monitoringConfig({ isPackaged: true, channel, env: {} });
+    assert.strictEqual(options.enabled, true);
+    assert.strictEqual(options.environment, 'preview');
+});
+
+test('monitoring: local builds record the development channel', () => {
+    for (const env of [{}, { PAIRKILLER_RELEASE_CHANNEL: 'production' }, { GITHUB_ACTIONS: 'true' }, { GITHUB_ACTIONS: 'true', PAIRKILLER_RELEASE_CHANNEL: 'staging' }]) {
+        assert.strictEqual(releaseChannel(env), 'development', JSON.stringify(env));
     }
-    const override = 'https://public@errors.example.com/9';
-    for (const isPackaged of [false, true]) {
-        const options = monitoringConfig({ isPackaged, env: { SENTRY_DSN: ` ${override} ` } });
-        assert.strictEqual(options.dsn, override);
-        assert.strictEqual(options.enabled, true);
-        if (!isPackaged) {
+});
+
+test('monitoring: development, local packages and a DSN alone never report', () => {
+    const dsn = 'https://public@errors.example.com/9';
+    for (const [isPackaged, channel] of [[false, undefined], [false, 'production'], [true, 'development'], [true, undefined]]) {
+        for (const env of [{}, { SENTRY_DSN: dsn }, { SENTRY_FORCE: '0' }]) {
+            const options = monitoringConfig({ isPackaged, channel, env });
+            assert.strictEqual(options.enabled, false, JSON.stringify({ isPackaged, channel, env }));
+            assert.strictEqual(options.dsn, undefined);
             assert.strictEqual(options.environment, 'development');
             assert.strictEqual(options.tracesSampleRate, 0);
         }
     }
 });
 
-test('monitoring: tests and the disable switch override an explicit DSN', () => {
-    for (const isPackaged of [false, true]) {
+test('monitoring: SENTRY_FORCE enables local reporting as development', () => {
+    for (const force of ['1', 'true']) {
+        const options = monitoringConfig({ isPackaged: false, env: { SENTRY_FORCE: force, SENTRY_DSN: ' https://public@errors.example.com/9 ' } });
+        assert.strictEqual(options.enabled, true);
+        assert.strictEqual(options.dsn, 'https://public@errors.example.com/9');
+        assert.strictEqual(options.environment, 'development');
+        assert.strictEqual(options.tracesSampleRate, 0);
+    }
+});
+
+test('monitoring: tests and the disable switch override forcing and releases', () => {
+    for (const [isPackaged, channel] of [[false, undefined], [true, 'production']]) {
         for (const env of [{ NODE_ENV: 'test' }, { SENTRY_DISABLED: 'true' }]) {
-            const options = monitoringConfig({ isPackaged, env: { ...env, SENTRY_DSN: 'https://public@errors.example.com/9' } });
+            const options = monitoringConfig({ isPackaged, channel, env: { ...env, SENTRY_FORCE: '1' } });
             assert.strictEqual(options.enabled, false);
+            assert.strictEqual(options.dsn, undefined);
         }
     }
+});
+
+test('monitoring: local hostnames are recognised and real ones are not', () => {
+    for (const host of ['localhost', 'LOCALHOST', '127.0.0.1', '127.0.1.1', '::1', '[::1]', '0.0.0.0', 'pairkiller.local', 'app.localhost', 'pairkiller.test',
+        '10.0.0.5', '192.168.1.20', '172.16.0.1', '172.31.255.255', '169.254.1.2', 'devbox', 'localhost.',
+        'fc00::1', 'fd12:3456::1', 'fe80::1', 'febf::1', '::ffff:127.0.0.1', '::ffff:7f00:1', '::ffff:c0a8:101']) {
+        assert.strictEqual(isLocalHostname(host), true, host);
+    }
+    for (const host of ['', undefined, 'github.com', 'error.cnnct.uk', '172.15.0.1', '172.32.0.1', '8.8.8.8', '2001:db8::1', 'fec0::1', '::ffff:808:808', 'fc.example.com']) {
+        assert.strictEqual(isLocalHostname(host), false, String(host));
+    }
+    assert.strictEqual(isLocalUrl('http://localhost:5173/index.html'), true);
+    assert.strictEqual(isLocalUrl('http://[::1]:3000/'), true);
+    for (const url of ['http://[fc00::1]/', 'http://[fe80::1]/', 'http://[::ffff:127.0.0.1]/', 'http://169.254.1.2/']) assert.strictEqual(isLocalUrl(url), true, url);
+    // The packaged renderer loads from file:// and must keep reporting.
+    assert.strictEqual(isLocalUrl('file:///Applications/Pairkiller.app/Contents/Resources/app.asar/src/renderer/index.html'), false);
+    assert.strictEqual(isLocalUrl('https://github.com/hybes/pairkiller/releases/latest'), false);
+    assert.strictEqual(isLocalUrl('not a url'), false);
+});
+
+test('monitoring: events, transactions and logs from local pages are dropped', () => {
+    const options = glitchtipOptions();
+    assert.strictEqual(options.beforeSend({ request: { url: 'http://localhost:3000/' } }), null);
+    assert.strictEqual(options.beforeSendTransaction({ request: { url: 'http://192.168.1.4/' } }), null);
+    assert.strictEqual(options.beforeSendLog({ message: 'x', attributes: { 'url.full': 'http://devbox:8080/' } }), null);
+    assert.strictEqual(options.beforeSendLog({ message: 'x', attributes: { 'page.url': 'http://app.test/' } }), null);
+    // Device hostnames are real user machines, not local addresses.
+    assert.ok(glitchtipOptions({ hostname: 'DESKTOP-1234' }).beforeSendLog({ message: 'config: failed' }));
+    assert.ok(options.beforeSend({ server_name: 'bens-mac.local', request: { url: 'file:///C:/Program%20Files/Pairkiller/resources/app.asar/src/renderer/index.html' } }));
+    assert.ok(options.beforeSendTransaction({ transaction: 'startup' }));
+    const envelope = [{}, [[{ type: 'event' }, { request: { url: 'http://127.0.0.1/' } }], [{ type: 'transaction' }, { request: { url: 'http://localhost/' } }], [{ type: 'event' }, { message: 'kept' }]]];
+    envelopeHook(options)(envelope);
+    assert.deepStrictEqual(envelope[1].map(([, payload]) => payload.message), ['kept']);
 });
 
 test('monitoring: both runtimes drop release health without removing error handlers', () => {
