@@ -23,9 +23,14 @@ function isLocalHostname(hostname) {
     if (!host) return false;
     if (['localhost', '127.0.0.1', '::1', '0.0.0.0'].includes(host)) return true;
     if (/\.(?:local|localhost|test)$/.test(host)) return true;
-    if (/^(?:127|10)\.\d+\.\d+\.\d+$/.test(host) || /^192\.168\.\d+\.\d+$/.test(host)) return true;
-    if (/^172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(host)) return true;
-    return !host.includes('.') && !host.includes(':');
+    // IPv4-mapped IPv6 (::ffff:127.0.0.1, or ::ffff:7f00:1 as URL parsing writes it) is checked as IPv4.
+    const mapped = host.match(/^::ffff:([\da-f]{1,4}):([\da-f]{1,4})$/);
+    const ip = mapped ? [parseInt(mapped[1], 16) >> 8, parseInt(mapped[1], 16) & 255, parseInt(mapped[2], 16) >> 8, parseInt(mapped[2], 16) & 255].join('.') : host.replace(/^::ffff:/, '');
+    if (/^(?:127|10)\.\d+\.\d+\.\d+$/.test(ip) || /^(?:192\.168|169\.254)\.\d+\.\d+$/.test(ip)) return true;
+    if (/^172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(ip)) return true;
+    // Unique local (fc00::/7) and link-local (fe80::/10) IPv6.
+    if (host.includes(':')) return /^f[cd][\da-f]{0,2}:/.test(host) || /^fe[89ab][\da-f]?:/.test(host);
+    return !host.includes('.');
 }
 
 function isLocalUrl(url) {
@@ -130,9 +135,12 @@ function glitchtipOptions({ runtime = 'server', hostname, isEnabled = () => true
 function monitoringConfig({ isPackaged, channel = 'development', env }) {
     const deployed = isPackaged && (channel === 'production' || channel === 'preview');
     const forced = env.SENTRY_FORCE === '1' || env.SENTRY_FORCE === 'true';
+    const enabled = env.NODE_ENV !== 'test' && env.SENTRY_DISABLED !== 'true' && (deployed || forced);
     return {
-        dsn: env.SENTRY_DSN?.trim() || DEFAULT_DSN,
-        enabled: env.NODE_ENV !== 'test' && env.SENTRY_DISABLED !== 'true' && (deployed || forced),
+        // No DSN when disabled: the SDK still builds its transport otherwise, and flushes reports
+        // queued offline by an earlier run without passing them through beforeSend.
+        dsn: enabled ? env.SENTRY_DSN?.trim() || DEFAULT_DSN : undefined,
+        enabled,
         environment: env.NODE_ENV === 'test' ? 'test' : deployed ? channel : 'development',
         tracesSampleRate: deployed ? 0.01 : 0,
     };

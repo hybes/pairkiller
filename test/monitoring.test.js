@@ -33,6 +33,7 @@ test('monitoring: development, local packages and a DSN alone never report', () 
         for (const env of [{}, { SENTRY_DSN: dsn }, { SENTRY_FORCE: '0' }]) {
             const options = monitoringConfig({ isPackaged, channel, env });
             assert.strictEqual(options.enabled, false, JSON.stringify({ isPackaged, channel, env }));
+            assert.strictEqual(options.dsn, undefined);
             assert.strictEqual(options.environment, 'development');
             assert.strictEqual(options.tracesSampleRate, 0);
         }
@@ -54,20 +55,23 @@ test('monitoring: tests and the disable switch override forcing and releases', (
         for (const env of [{ NODE_ENV: 'test' }, { SENTRY_DISABLED: 'true' }]) {
             const options = monitoringConfig({ isPackaged, channel, env: { ...env, SENTRY_FORCE: '1' } });
             assert.strictEqual(options.enabled, false);
+            assert.strictEqual(options.dsn, undefined);
         }
     }
 });
 
 test('monitoring: local hostnames are recognised and real ones are not', () => {
     for (const host of ['localhost', 'LOCALHOST', '127.0.0.1', '127.0.1.1', '::1', '[::1]', '0.0.0.0', 'pairkiller.local', 'app.localhost', 'pairkiller.test',
-        '10.0.0.5', '192.168.1.20', '172.16.0.1', '172.31.255.255', 'devbox', 'localhost.']) {
+        '10.0.0.5', '192.168.1.20', '172.16.0.1', '172.31.255.255', '169.254.1.2', 'devbox', 'localhost.',
+        'fc00::1', 'fd12:3456::1', 'fe80::1', 'febf::1', '::ffff:127.0.0.1', '::ffff:7f00:1', '::ffff:c0a8:101']) {
         assert.strictEqual(isLocalHostname(host), true, host);
     }
-    for (const host of ['', undefined, 'github.com', 'error.cnnct.uk', '172.15.0.1', '172.32.0.1', '8.8.8.8', '2001:db8::1']) {
+    for (const host of ['', undefined, 'github.com', 'error.cnnct.uk', '172.15.0.1', '172.32.0.1', '8.8.8.8', '2001:db8::1', 'fec0::1', '::ffff:808:808', 'fc.example.com']) {
         assert.strictEqual(isLocalHostname(host), false, String(host));
     }
     assert.strictEqual(isLocalUrl('http://localhost:5173/index.html'), true);
     assert.strictEqual(isLocalUrl('http://[::1]:3000/'), true);
+    for (const url of ['http://[fc00::1]/', 'http://[fe80::1]/', 'http://[::ffff:127.0.0.1]/', 'http://169.254.1.2/']) assert.strictEqual(isLocalUrl(url), true, url);
     // The packaged renderer loads from file:// and must keep reporting.
     assert.strictEqual(isLocalUrl('file:///Applications/Pairkiller.app/Contents/Resources/app.asar/src/renderer/index.html'), false);
     assert.strictEqual(isLocalUrl('https://github.com/hybes/pairkiller/releases/latest'), false);
