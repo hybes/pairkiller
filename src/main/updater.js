@@ -1,5 +1,7 @@
 'use strict';
 
+const { describe } = require('../monitoring');
+
 const RELEASES_URL = 'https://github.com/hybes/pairkiller/releases/latest';
 const FIRST_CHECK_MS = 30 * 1000;
 const RECHECK_MS = 4 * 60 * 60 * 1000;
@@ -33,11 +35,13 @@ function createUpdater({ app, log, onChange, beforeInstall }) {
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.allowDowngrade = false;
     autoUpdater.allowPrerelease = false;
+    // electron-updater hands its logger arbitrary values; describe them without risking a throw.
+    const text = (messages) => messages.map(describe).join(' ');
     autoUpdater.logger = {
-        info: (...messages) => log.info(`updater: ${messages.join(' ')}`, { 'log.local': true }),
-        warn: (...messages) => log.warn(`updater: ${messages.join(' ')}`, { version: app.getVersion() }),
+        info: (...messages) => log.info(`updater: ${text(messages)}`, { 'log.local': true }),
+        warn: (...messages) => log.warn(`updater: ${text(messages)}`, { version: app.getVersion() }),
         // Upstream repeats the error event here; retain the detail locally, send our contextual warning once.
-        error: (...messages) => log.error(`updater: ${messages.join(' ')}`, { version: app.getVersion(), 'log.local': true }),
+        error: (...messages) => log.error(`updater: ${text(messages)}`, { version: app.getVersion(), 'log.local': true }),
         debug() {},
     };
 

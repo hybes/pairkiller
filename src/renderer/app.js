@@ -82,7 +82,7 @@
         saveTimer = null;
         bridge.saveRules(store.rules).catch((error) => {
             const log = window.pairkillerLog || console;
-            log.error(`[pairkiller] config: could not save ${store.rules.length} rules: ${error.message}`, { 'rule.count': store.rules.length, 'error.message': error.message, 'error.stack': error.stack });
+            log.error(`config: could not save ${store.rules.length} rules: ${error.message}`, { 'rule.count': store.rules.length, 'error.message': error.message, 'error.stack': error.stack });
         });
     }
     function commit() {

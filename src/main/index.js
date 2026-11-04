@@ -4,7 +4,7 @@ const { app, Menu, Notification, nativeTheme, powerMonitor, shell, systemPrefere
 const os = require('os');
 const path = require('path');
 const Sentry = require('@sentry/electron/main');
-const { glitchtipOptions, monitoringConfig } = require('../monitoring');
+const { describe, glitchtipOptions, monitoringConfig } = require('../monitoring');
 
 const { ConfigStore, clampInterval } = require('./config');
 const { createLog } = require('./log');
@@ -62,7 +62,7 @@ process.on('uncaughtException', (error) => {
     Sentry.captureException(error, { level: 'fatal' });
 });
 process.on('unhandledRejection', (reason) => {
-    log.error('app: unhandled rejection', reason instanceof Error ? reason : String(reason));
+    log.error('app: unhandled rejection', reason instanceof Error ? reason : describe(reason));
     Sentry.captureException(reason);
 });
 

@@ -58,18 +58,39 @@ function scrubText(value, context = '') {
         });
 }
 
-function scrubSecrets(value, context = '', seen = new WeakSet()) {
-    if (typeof value === 'string') return scrubText(value, context);
-    if (!value || typeof value !== 'object') return value;
-    if (seen.has(value)) return '[Circular]';
-    seen.add(value);
-    if (value.grant_type === 'authorization_code' || value.code_verifier || value.codeVerifier || (value.redirect_uri && value.state)) context += '.oauth';
-    const result = Array.isArray(value) ? [] : {};
-    for (const [key, item] of Object.entries(value)) {
-        result[key] = secretKey(key, context) ? FILTERED : scrubSecrets(item, `${context}.${key}`, seen);
+// Turns anything (including request bodies and IPC values) into text without ever throwing.
+function describe(value) {
+    try {
+        if (typeof value === 'string') return value;
+        if (value instanceof Error) return value.message || value.name || 'Error';
+        return String(value);
+    } catch (_) {
+        try { return Object.prototype.toString.call(value); } catch (_) { return '[Unreadable]'; }
     }
-    seen.delete(value);
-    return result;
 }
 
-module.exports = { scrubSecrets, scrubText };
+function scrubSecrets(value, context = '', seen = new WeakSet()) {
+    if (typeof value === 'string') return scrubText(value, context);
+    if (typeof value === 'bigint') return value.toString();
+    if (!value || typeof value !== 'object') return value;
+    // Getters and proxies in untrusted values can throw; whatever can't be read isn't sent.
+    try {
+        if (seen.has(value)) return '[Circular]';
+        seen.add(value);
+        if (value.grant_type === 'authorization_code' || value.code_verifier || value.codeVerifier || (value.redirect_uri && value.state)) context += '.oauth';
+        const result = Array.isArray(value) ? [] : {};
+        for (const key of Object.keys(value)) {
+            try {
+                result[key] = secretKey(key, context) ? FILTERED : scrubSecrets(value[key], `${context}.${key}`, seen);
+            } catch (_) {
+                result[key] = '[Unreadable]';
+            }
+        }
+        seen.delete(value);
+        return result;
+    } catch (_) {
+        return '[Unreadable]';
+    }
+}
+
+module.exports = { describe, scrubSecrets, scrubText };

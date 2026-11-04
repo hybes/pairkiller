@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { logMessage, scrubSecrets } = require('../monitoring');
+const { describe, logMessage, scrubSecrets } = require('../monitoring');
 
 const MAX_BYTES = 512 * 1024;
 const REPEAT_WINDOW_MS = 5 * 60 * 1000;
@@ -15,6 +15,8 @@ function createLog({ dir, echo = false, now = Date.now }) {
     let pending = [];
     let fileFailed = false;
     const repeats = new Map();
+    // A closed terminal must not turn a development echo into an uncaught stream error.
+    if (echo) process.stdout.on('error', () => {});
     try {
         fs.mkdirSync(dir, { recursive: true });
         size = fs.statSync(file).size;
@@ -23,9 +25,9 @@ function createLog({ dir, echo = false, now = Date.now }) {
     }
 
     function send(entry) {
-        if (entry.attributes['log.local']) return;
-        if (!sink) { pending.push(entry); pending = pending.slice(-100); return; }
         try {
+            if (entry.attributes['log.local']) return;
+            if (!sink) { pending.push(entry); pending = pending.slice(-100); return; }
             if (!sink.isEnabled()) return;
             if (entry.level === 'warn' || entry.level === 'error') {
                 const key = `${entry.level}:${entry.attributes['log.key'] || entry.message}`;
@@ -42,24 +44,42 @@ function createLog({ dir, echo = false, now = Date.now }) {
         }
     }
 
-    function write(level, message, detail, extra = {}) {
+    function format(level, message, detail, extra) {
         const error = detail instanceof Error || typeof detail === 'string' ? detail : null;
         const attributes = Object.fromEntries(Object.entries(scrubSecrets({
             ...(error ? {
-                'error.message': error.message || String(error),
+                'error.message': describe(error),
                 'error.code': error.code,
                 'error.stack': error.stack,
                 'http.status_code': error.statusCode || error.status,
             } : detail),
             ...extra,
         })).filter(([, value]) => value !== undefined));
-        const area = attributes.area || String(message).match(/^([\w-]+):/)?.[1] || 'app';
+        const area = describe(attributes.area || describe(message).match(/^([\w-]+):/)?.[1] || 'app');
         attributes.area = area;
-        const failure = error ? `: ${error.code ? `${error.code} ` : ''}${error.message || error}` : '';
-        const body = logMessage(`${message}${failure}`, area);
+        const failure = error ? `: ${error.code ? `${describe(error.code)} ` : ''}${describe(error)}` : '';
+        const body = logMessage(`${describe(message)}${failure}`, area);
         const entry = { level, message: scrubSecrets(body), attributes };
         const line = `${new Date(now()).toISOString()} ${level.toUpperCase()} ${entry.message} ${JSON.stringify(attributes)}\n`;
-        if (echo) process.stdout.write(line);
+        return { entry, line };
+    }
+
+    // Logging runs inside request and IPC handlers, so nothing here may throw back into them.
+    function write(level, message, detail, extra = {}) {
+        let formatted;
+        try {
+            formatted = format(level, message, detail, extra);
+        } catch (error) {
+            // Keep the message itself; only the details that couldn't be read are lost.
+            const reason = describe(error);
+            const text = scrubSecrets(logMessage(`${describe(message)} (details unreadable: ${reason})`, 'app'));
+            formatted = {
+                entry: { level, message: text, attributes: { area: text.match(/^([\w-]+):/)?.[1] || 'app', 'log.format_error': scrubSecrets(reason) } },
+                line: `${new Date(now()).toISOString()} ${level.toUpperCase()} ${text}\n`,
+            };
+        }
+        const { entry, line } = formatted;
+        try { if (echo) process.stdout.write(line); } catch (_) { /* Terminal gone. */ }
         send(entry);
         try {
             if (size + line.length > MAX_BYTES) {
@@ -70,8 +90,8 @@ function createLog({ dir, echo = false, now = Date.now }) {
             size += Buffer.byteLength(line);
             fileFailed = false;
         } catch (error) {
-            if (!fileFailed) send({ level: 'warn', message: logMessage(`could not write ${file}: ${error.message}`, 'logging'),
-                attributes: scrubSecrets({ area: 'logging', path: file, 'error.message': error.message, 'error.code': error.code }) });
+            if (!fileFailed) send({ level: 'warn', message: logMessage(`could not write ${file}: ${describe(error)}`, 'logging'),
+                attributes: scrubSecrets({ area: 'logging', path: file, 'error.message': describe(error), 'error.code': error?.code }) });
             fileFailed = true;
         }
     }
