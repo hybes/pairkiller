@@ -34,9 +34,10 @@ function createUpdater({ app, log, onChange, beforeInstall }) {
     autoUpdater.allowDowngrade = false;
     autoUpdater.allowPrerelease = false;
     autoUpdater.logger = {
-        info: (message) => log.info(`[updater] ${message}`),
-        warn: (message) => log.warn(`[updater] ${message}`),
-        error: (message) => log.error(`[updater] ${message}`),
+        info: (...messages) => log.info(`updater: ${messages.join(' ')}`, { 'log.local': true }),
+        warn: (...messages) => log.warn(`updater: ${messages.join(' ')}`, { version: app.getVersion() }),
+        // Upstream repeats the error event here; retain the detail locally, send our contextual warning once.
+        error: (...messages) => log.error(`updater: ${messages.join(' ')}`, { version: app.getVersion(), 'log.local': true }),
         debug() {},
     };
 
@@ -59,12 +60,13 @@ function createUpdater({ app, log, onChange, beforeInstall }) {
     });
 
     autoUpdater.on('update-downloaded', (info) => {
+        log.info(`updater: version ${info.version} downloaded; ready to install`, { version: info.version });
         set({ status: 'ready', version: info.version, percent: 100, message: '' });
     });
 
     autoUpdater.on('error', (error) => {
         const text = String((error && error.message) || error);
-        log.warn(`[updater] ${text}`);
+        log.warn(`updater: update ${state.version || 'check'} failed`, error, { version: state.version, status: state.status, url: RELEASES_URL, 'log.key': 'updater-failure' });
         const wasManual = manual;
         manual = false;
         if (state.status === 'ready') return;
@@ -107,7 +109,7 @@ function createUpdater({ app, log, onChange, beforeInstall }) {
         try {
             await beforeInstall();
         } catch (error) {
-            log.warn('Pre-update housekeeping failed', error);
+            log.warn(`updater: backup failed before installing ${state.version}; continuing update`, error, { version: state.version });
         }
         autoUpdater.quitAndInstall(true, true);
     }

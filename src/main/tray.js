@@ -92,7 +92,7 @@ function createTray({ platform, getModel, actions, log }) {
     function create() {
         const image = trayImage(platform);
         if (!image) {
-            log.error('No tray icon could be loaded');
+            log.error(`tray: no icon could be loaded from ${root}`, { path: root, platform });
             return false;
         }
         tray = new Tray(image);

@@ -48,7 +48,9 @@ function createAutoStart({ app, platform, log }) {
                 if (desired === undefined) {
                     desired = firstRun || await read() || await reg(['QUERY', RUN_KEY, '/v', LEGACY_RUN_VALUE]);
                 }
-                await write(desired);
+                if (!await write(desired)) {
+                    log.warn(`autostart: could not ${desired ? 'enable' : 'disable'} launch at login during startup`, { enabled: desired, path: process.execPath });
+                }
                 return desired;
             }
             // On macOS the login item can be removed in System Settings, so the system wins.
@@ -58,16 +60,21 @@ function createAutoStart({ app, platform, log }) {
             }
             return await read();
         } catch (error) {
-            log.warn('Could not reconcile the launch-at-login setting', error);
+            log.warn('autostart: could not reconcile launch at login; using saved preference', error, { preference });
             return preference === undefined ? false : preference;
         }
     }
 
     async function set(enabled) {
         if (!available) return true;
-        const ok = await write(enabled);
-        if (!ok) log.warn(`Could not ${enabled ? 'enable' : 'disable'} launch at login`);
-        return ok;
+        try {
+            const ok = await write(enabled);
+            if (!ok) log.warn(`autostart: could not ${enabled ? 'enable' : 'disable'} launch at login`, { enabled, path: process.execPath });
+            return ok;
+        } catch (error) {
+            log.warn(`autostart: could not ${enabled ? 'enable' : 'disable'} launch at login`, error, { enabled, path: process.execPath });
+            return false;
+        }
     }
 
     return { available, reconcile, set };

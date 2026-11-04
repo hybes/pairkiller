@@ -143,7 +143,7 @@ Development runs understand a few environment variables:
 
 Run `bun run build:monitoring` first, then `bunx electron scripts/dev-screenshots.js <output-dir> [win32|darwin] [empty]` to render every screen to PNG, in light and dark, without showing a window.
 
-### Error monitoring
+### Errors and structured logs
 
 Main and renderer errors use the existing Sentry Electron SDK and go to [our GlitchTip](https://error.cnnct.uk/), organisation `connect-dorset`, project `pairkiller`. Packaged apps use the public DSN in `src/monitoring.js`. Set `SENTRY_DSN` in the app's environment to override it for both processes; renderer events pass through the main process over IPC.
 
@@ -153,7 +153,13 @@ Reporting is disabled in development unless `SENTRY_DSN` is set, and always disa
 SENTRY_DSN=https://9d9c2ec177654b48bdce3e218aca0d3a@error.cnnct.uk/8 bun run dev
 ```
 
-The existing **Send error reports** preference and privacy filters still apply. Errors are sampled at 100%; traces at 1% in packaged apps and 0% in development. Release-health sessions, client reports, logs and metrics are disabled. Replay, profiling and feedback widgets are not enabled.
+In GlitchTip, open **Logs** in `connect-dorset` and select **Service → pairkiller**. Every line starts with `[pairkiller]` and includes its area and key facts. Open a line for structured attributes: rule/app ids and names, paths, retry attempts, durations, error codes, messages and stacks. Main-process logs have `runtime=server` and `host.name` set to the device hostname; renderer logs have `runtime=browser` and no hostname. Both include environment and app-version release. Issues carry both `application=pairkiller` and `service=pairkiller`.
+
+The rolling logger sends warnings and errors for rule actions, process-list failures, config recovery/save failures, startup, windows, IPC, launch-at-login and updates. Renderer `console.warn` and `console.error` also go to Logs; app log calls use the structured renderer logger so their facts become attributes. Info is limited to startup, config recovery, completed app actions and downloaded updates; process polling, renders, update checks/progress and debug messages are not sent. Identical main-process failures (or the same recurring process-read/close failure) are limited to one remote report per five minutes; the next report includes `log.suppressed_count`. The rolling local log retains repeats, trigger transitions and updater diagnostics.
+
+The existing **Send error reports** preference controls errors and logs. Turning it off stops outgoing reports immediately; turning it back on may need a restart. App names, user paths, hostnames, URLs, user ids, emails, names, phone numbers, amounts, status codes, error messages, stacks and available request bodies are retained. Passwords, API keys/tokens, Authorization headers, cookies/session ids, OAuth codes/state, signed URL signatures and card data are filtered in events and logs. Pairkiller has no accounts or signed-in user to attach to issues.
+
+Errors are sampled at 100%; traces at 1% in packaged apps and 0% in development. Release-health sessions, client reports and metrics are disabled. Replay, profiling and feedback widgets are not enabled. Reporting failures never interrupt app actions. No hosting changes are needed: this is a desktop app and the public DSN already ships with it.
 
 There is no source-map upload step or token to configure. App code ships as readable JavaScript; the generated SDK bundle is included in the package.
 

@@ -113,7 +113,7 @@ function createWin32Host({ log }) {
     try {
         native = loadNative();
     } catch (error) {
-        log.warn('Native process list unavailable, falling back to tasklist', error);
+        log.warn('processes: native process list unavailable; using tasklist with a 5000 ms minimum interval', error, { backend: 'tasklist', 'interval.ms': 5000 });
     }
 
     const ownImage = path.basename(process.execPath).toLowerCase();
@@ -127,14 +127,18 @@ function createWin32Host({ log }) {
         const images = current.images(name).filter((image) => image.toLowerCase() !== ownImage);
         if (images.length === 0) return { ok: false, error: 'Not running' };
         let failure = null;
+        let code;
+        let stack;
         for (const image of images) {
             try {
                 await run(TASKKILL, ['/F', '/IM', image], 10000);
             } catch (error) {
                 failure = String(error.stderr || error.message || error).trim();
+                code = error.code;
+                stack = error.stack;
             }
         }
-        return failure ? { ok: false, error: failure } : { ok: true };
+        return failure ? { ok: false, error: failure, code, stack } : { ok: true };
     }
 
     async function listApps() {

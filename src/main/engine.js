@@ -128,16 +128,15 @@ class Engine extends EventEmitter {
         } catch (error) {
             // No data is not the same as "nothing is running": skip the cycle rather than act on it.
             this.failures += 1;
-            if (this.failures === 1 || this.failures % 60 === 0) {
-                this.log.warn(`Could not read the process list (attempt ${this.failures})`, error);
-            }
+            this.log.warn(`processes: could not read ${this.host.backend} process list (attempt ${this.failures}); skipping rule checks`, error,
+                { backend: this.host.backend, attempts: this.failures, 'log.key': 'process-snapshot' });
             this.publish();
             return false;
         }
         this.failures = 0;
         const actions = this.evaluate(snapshot, this.now());
         await Promise.all(actions.map((action) => action().catch((error) => {
-            this.log.error('Action failed', error);
+            this.log.error('rules: action failed unexpectedly', error);
         })));
         this.publish();
         return actions.length > 0;
@@ -238,7 +237,7 @@ class Engine extends EventEmitter {
             }
 
             if (running) {
-                if (appState.launch) this.record(plan.rule, 'success', `Opened ${displayName(app.name)}`);
+                if (appState.launch) this.record(plan.rule, 'success', `Opened ${displayName(app.name)}`, { 'app.name': app.name, 'app.path': app.path, 'duration.ms': now - appState.launch.at });
                 appState.launch = null;
                 this.clearStatus(appState);
             } else if (edge) {
@@ -246,7 +245,7 @@ class Engine extends EventEmitter {
             } else if (appState.launch && now - appState.launch.at > LAUNCH_CONFIRM_MS) {
                 appState.launch = null;
                 this.setStatus(appState, 'warning', `Opened, but nothing named “${app.name}” appeared. Check the process name.`);
-                this.record(plan.rule, 'warning', `Opened ${displayName(app.name)}, but couldn’t see it running as “${app.name}”`);
+                this.record(plan.rule, 'warning', `Opened ${displayName(app.name)}, but couldn’t see it running as “${app.name}” after ${LAUNCH_CONFIRM_MS} ms`, { 'app.name': app.name, 'app.path': app.path, 'timeout.ms': LAUNCH_CONFIRM_MS });
             }
         }
         return actions;
@@ -268,11 +267,13 @@ class Engine extends EventEmitter {
         appState.launch = { at: now };
         this.setStatus(appState, 'launching', '');
         return async () => {
-            const result = await this.host.launch(app.path);
+            const started = this.now();
+            const result = await this.host.launch(app.path).catch((error) => ({ ok: false, error: error.message, code: error.code, stack: error.stack }));
             if (result.ok) return;
             appState.launch = null;
             this.setStatus(appState, 'error', `Couldn’t open: ${result.error}`);
-            this.record(rule, 'error', `Couldn’t open ${displayName(app.name)}: ${result.error}`);
+            this.record(rule, 'error', `Couldn’t open ${displayName(app.name)} at ${app.path || '(no location)'}: ${result.error}`,
+                { 'app.name': app.name, 'app.path': app.path, 'error.message': result.error, 'error.code': result.code, 'error.stack': result.stack, 'duration.ms': this.now() - started });
         };
     }
 
@@ -285,14 +286,19 @@ class Engine extends EventEmitter {
         if (stop.attempts >= STOP_ATTEMPTS_BEFORE_WARNING && !stop.warned) {
             stop.warned = true;
             this.setStatus(appState, 'error', 'Couldn’t close it. It may be running as administrator.');
-            this.record(rule, 'error', `Couldn’t close ${displayName(app.name)}. It may be running as administrator.`);
+            this.record(rule, 'error', `Couldn’t close ${displayName(app.name)} after ${stop.attempts} attempts. It may be running as administrator.`,
+                { 'app.name': app.name, attempts: stop.attempts });
         } else if (!stop.warned) {
             this.setStatus(appState, 'stopping', '');
         }
         const force = stop.attempts > 1;
         return async () => {
-            const result = await this.host.stop(app.name, snapshot, { force });
-            if (!result.ok) this.log.warn(`Closing ${app.name} failed: ${result.error}`);
+            const started = this.now();
+            const result = await this.host.stop(app.name, snapshot, { force }).catch((error) => ({ ok: false, error: error.message, code: error.code, stack: error.stack }));
+            if (!result.ok) this.log.warn(`rules: closing ${app.name} for rule "${rule.name}" (${rule.id}) failed: ${result.code || ''} ${result.error || 'app still running'} (attempt ${stop.attempts}, force ${force}, ${stop.nextAt - now} ms until retry)`,
+                { 'rule.id': rule.id, 'rule.name': rule.name, 'app.name': app.name, pids: snapshot.pids(app.name), attempts: stop.attempts, force,
+                    'retry.ms': stop.nextAt - now, 'duration.ms': this.now() - started, 'error.message': result.error, 'error.code': result.code, 'error.stack': result.stack,
+                    'log.key': `stop:${rule.id}:${app.name}` });
         };
     }
 
@@ -300,7 +306,7 @@ class Engine extends EventEmitter {
     settleStop(plan, running = false) {
         const { rule, app, appState } = plan;
         if (!appState.stop) return;
-        if (!running) this.record(rule, 'success', `Closed ${displayName(app.name)}`);
+        if (!running) this.record(rule, 'success', `Closed ${displayName(app.name)}`, { 'app.name': app.name, attempts: appState.stop.attempts });
         appState.stop = null;
         this.clearStatus(appState, ['stopping', 'error']);
     }
@@ -328,11 +334,14 @@ class Engine extends EventEmitter {
         }
     }
 
-    record(rule, level, message) {
+    record(rule, level, message, attributes = {}) {
         const entry = { id: ++this.activitySeq, at: this.now(), level, ruleId: rule.id, rule: rule.name, message };
         this.activity.push(entry);
         if (this.activity.length > ACTIVITY_LIMIT) this.activity.shift();
-        this.log.info(`[${rule.name || 'Untitled rule'}] ${message}`);
+        const severity = level === 'error' ? 'error' : level === 'warning' ? 'warn' : 'info';
+        // Trigger transitions stay local; remote info is for completed actions.
+        this.log[severity](`rules: rule "${rule.name || rule.id}" (${rule.id}): ${message}${attributes['app.path'] ? ` (${attributes['app.path']})` : ''}${attributes['duration.ms'] !== undefined ? `, ${attributes['duration.ms']} ms` : ''}`,
+            { ...attributes, 'rule.id': rule.id, 'rule.name': rule.name, 'log.local': level === 'info', 'log.key': `${rule.id}:${attributes['app.name'] || message}:${level}` });
         this.emit('activity', entry);
     }
 

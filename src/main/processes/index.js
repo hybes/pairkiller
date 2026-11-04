@@ -11,10 +11,10 @@ function createHost({ platform = process.platform, openPath, log, dryRun = false
         : require('./posix').createPosixHost({ platform });
 
     async function launch(appPath) {
-        if (!appPath) return { ok: false, error: 'No location set' };
-        if (!fs.existsSync(appPath)) return { ok: false, error: 'File not found' };
+        if (!appPath) return { ok: false, error: 'No location set', code: 'MISSING_PATH' };
+        if (!fs.existsSync(appPath)) return { ok: false, error: 'File not found', code: 'ENOENT' };
         if (dryRun) {
-            log.info(`[dry run] would open ${appPath}`);
+            log.info(`rules: dry run would open ${appPath}`, { 'app.path': appPath, 'dry_run': true });
             return { ok: true };
         }
         const viaShell = platform === 'win32' || (platform === 'darwin' && /\.app\/?$/i.test(appPath));
@@ -25,7 +25,7 @@ function createHost({ platform = process.platform, openPath, log, dryRun = false
 
     async function stop(name, snapshot, options) {
         if (dryRun) {
-            log.info(`[dry run] would close ${displayName(name)}`);
+            log.info(`rules: dry run would close ${displayName(name)}`, { 'app.name': name, 'dry_run': true });
             return { ok: true };
         }
         return impl.stop(name, snapshot, options);

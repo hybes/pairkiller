@@ -38,9 +38,11 @@ const userData = app.getPath('userData');
 const log = createLog({ dir: path.join(userData, 'logs'), echo: isDev });
 const store = new ConfigStore({ file: path.join(userData, 'config.json'), platform, appVersion: app.getVersion(), log });
 store.load();
+const reportingEnabled = () => store.data.anonymousUsage && monitoring.enabled;
+const diagnostics = glitchtipOptions({ runtime: 'server', hostname: os.hostname(), isEnabled: reportingEnabled });
 
 Sentry.init({
-    ...glitchtipOptions(),
+    ...diagnostics,
     ...monitoring,
     enabled: store.data.anonymousUsage && monitoring.enabled,
     release: app.getVersion(),
@@ -48,22 +50,19 @@ Sentry.init({
     // of that kind here, and a background utility shouldn't pay for it at startup.
     enableRuntimeChannelInjection: false,
     beforeSend(event) {
-        if (!store.data.anonymousUsage) return null;
         event.tags = { ...event.tags, application: 'pairkiller', app: 'Pairkiller', platform, electron: process.versions.electron };
         event.extra = { ...event.extra, ruleCount: store.data.appGroups.length };
-        return event;
-    },
-    beforeSendTransaction(event) {
-        return store.data.anonymousUsage ? event : null;
+        return diagnostics.beforeSend(event);
     },
 });
+log.connect({ logger: Sentry.logger, isEnabled: reportingEnabled });
 
 process.on('uncaughtException', (error) => {
-    log.error('Uncaught exception', error);
+    log.error('app: uncaught exception', error);
     Sentry.captureException(error, { level: 'fatal' });
 });
 process.on('unhandledRejection', (reason) => {
-    log.error('Unhandled rejection', reason);
+    log.error('app: unhandled rejection', reason instanceof Error ? reason : String(reason));
     Sentry.captureException(reason);
 });
 
@@ -78,7 +77,8 @@ const windows = createWindowManager({
     platform,
     uiPlatform,
     isDev,
-    monitoring: { enabled: store.data.anonymousUsage && monitoring.enabled, tracesSampleRate: monitoring.tracesSampleRate },
+    monitoring: { enabled: reportingEnabled(), tracesSampleRate: monitoring.tracesSampleRate, environment: monitoring.environment, release: app.getVersion() },
+    log,
     stateFile: path.join(userData, 'window-state.json'),
     onOpen: applyDock,
     onClosed: applyDock,
@@ -143,8 +143,8 @@ function theme() {
     let accent = null;
     try {
         if (platform === 'win32' || platform === 'darwin') accent = `#${systemPreferences.getAccentColor().slice(0, 6)}`;
-    } catch (_) {
-        // Falls back to the stylesheet's default accent.
+    } catch (error) {
+        log.warn('theme: could not read system accent; using default', error);
     }
     return { accent, dark: nativeTheme.shouldUseDarkColors };
 }
@@ -177,7 +177,7 @@ function applyDock() {
             else app.dock.hide();
         }
     } catch (error) {
-        log.warn('Could not update Dock visibility', error);
+        log.warn(`window: could not ${visible ? 'show' : 'hide'} Dock icon`, error, { visible });
     }
 }
 
@@ -187,7 +187,7 @@ const context = {
     theme,
     settings,
     persist() {
-        return store.save().catch((error) => log.error('Could not save settings', error));
+        return store.save().catch((error) => log.error(`config: could not save ${store.file}`, error, { path: store.file }));
     },
     // Rules were edited somewhere other than the window (tray, menu): apply, save and tell the window.
     rulesChanged() {
@@ -335,7 +335,8 @@ async function start() {
     windows.send('settings', settings());
 
     updater.start();
-    log.info(`Pairkiller ${app.getVersion()} started (${platform}, process list via ${host.backend})`);
+    log.info(`startup: version ${app.getVersion()} started on ${platform} (process list ${host.backend}, ${store.data.appGroups.length} rules)`,
+        { version: app.getVersion(), platform, backend: host.backend, 'rule.count': store.data.appGroups.length });
 }
 
 app.on('second-instance', () => windows.open());
@@ -353,7 +354,7 @@ app.on('before-quit', () => {
 });
 
 const ready = app.whenReady().then(start).catch((error) => {
-    log.error('Startup failed', error);
+    log.error('startup: failed to start', error);
     Sentry.captureException(error);
 });
 
