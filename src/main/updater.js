@@ -6,6 +6,21 @@ const RELEASES_URL = 'https://github.com/hybes/pairkiller/releases/latest';
 const FIRST_CHECK_MS = 30 * 1000;
 const RECHECK_MS = 4 * 60 * 60 * 1000;
 
+// The update server couldn't be reached or failed on its side: the user's connection (offline, DNS, proxy,
+// Chromium's net:: errors) or GitHub answering 5xx or 429. Not a fault in Pairkiller, so it's logged at info.
+const UNREACHABLE = /\b(?:ENOTFOUND|ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|ESOCKETTIMEDOUT|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|EPIPE)\b|net::ERR_|socket hang up/i;
+
+function isUpdateServerUnreachable(error) {
+    try {
+        const status = Number(error?.statusCode ?? error?.status);
+        if (status >= 500 || status === 429) return true;
+        if (UNREACHABLE.test(String(error?.code || ''))) return true;
+        return UNREACHABLE.test(String((error && error.message) || error || ''));
+    } catch (_) {
+        return false;
+    }
+}
+
 // status: idle | checking | downloading | ready | current | manual | error | unsupported
 function createUpdater({ app, log, onChange, beforeInstall }) {
     let state = { status: 'idle', version: null, percent: 0, message: '' };
@@ -70,7 +85,9 @@ function createUpdater({ app, log, onChange, beforeInstall }) {
 
     autoUpdater.on('error', (error) => {
         const text = String((error && error.message) || error);
-        log.warn(`updater: update ${state.version || 'check'} failed`, error, { version: state.version, status: state.status, url: RELEASES_URL, 'log.key': 'updater-failure' });
+        const unreachable = isUpdateServerUnreachable(error);
+        log[unreachable ? 'info' : 'warn'](`updater: update ${state.version || 'check'} failed${unreachable ? ' (update server unreachable)' : ''}`, error,
+            { version: state.version, status: state.status, url: RELEASES_URL, 'log.key': 'updater-failure' });
         const wasManual = manual;
         manual = false;
         if (state.status === 'ready') return;
@@ -121,4 +138,4 @@ function createUpdater({ app, log, onChange, beforeInstall }) {
     return { releasesUrl: RELEASES_URL, getState: () => state, start, check, install };
 }
 
-module.exports = { createUpdater };
+module.exports = { createUpdater, isUpdateServerUnreachable };
